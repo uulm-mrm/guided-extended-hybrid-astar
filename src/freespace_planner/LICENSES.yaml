@@ -1,0 +1,49 @@
+project:
+  - files: *
+    copyright: 2023, Oliver Schumann
+    license: Apache-2.0
+
+software:
+  - name: reeds_shepp
+    files:
+    - library/src/deps_lib/reeds_shepp.cpp
+    - library/include/deps_lib/reeds_shepp.cpp
+    copyright: 2016, Guan-Horng Liu.
+    license: BSD-3-Clause
+    url: https://github.com/ghliu/pyReedsShepp
+    version: 69aebbb6ad98f38b60e192999a7302d3b74bb7ad
+    modified: true
+
+  - name: VoronoiDiagramGenerator
+    files:
+      - library/src/deps_lib/VoronoiDiagramGenerator.cpp
+      - library/include/deps_lib/VoronoiDiagramGenerator.hpp
+    copyright: 1994 by AT&T Bell Laboratories
+    license: MIT
+    url: https://web.archive.org/web/20131207065132/http://www.skynet.ie/~sos/mapviewer/voronoi.php
+    version: None
+    modified: true
+
+  - name: nanoflann
+    files:
+      - library/include/deps_lib/nanoflann.hpp
+      - library/include/deps_lib/KdTreeVectorOfVectorsAdaptors.hpp
+    copyright:
+      - Copyright 2008-2009  Marius Muja (mariusm@cs.ubc.ca). All rights reserved.
+      - Copyright 2008-2009  David G. Lowe (lowe@cs.ubc.ca). All rights reserved.
+      - Copyright 2011-2022  Jose Luis Blanco (joseluisblancoc@gmail.com).
+    license: BSD-3-Clause
+    url: https://github.com/jlblancoc/nanoflann
+    version: f1e47f0dbae72c11b008fd0d5b1191d9ba1f29bb
+    modified: false
+
+  - name: Scipy
+    files:
+      - library/deps/scipy/*
+    copyright: 2001-2002 Enthought, Inc. 2003-2023, SciPy Developers. All rights reserved.
+    license: BSD-3-Clause
+    url: https://github.com/scipy/scipy/tree/main/scipy/interpolate/fitpack
+    version: b7a9ae281cb6c3230beb78675a6e4ad0a1789d2c
+    modified: false
+
+licenses:
