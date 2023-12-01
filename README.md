@@ -43,6 +43,7 @@ ALL_VISIBLE decides if the environment is previously known.
 Here, all the library params can be adjusted. They can also be set in the Gui. Scroll down on the right side.
 
 ## Troubleshooting
+### GLFW Error
 If you receive the error: 
 ```
 No protocol specified
@@ -52,6 +53,14 @@ Run the following in your console before running the docker
 ```
 xhost +si:localuser:root
 ```
+
+### Graphics Card not supported
+If you receive the error
+```
+RuntimeError: OpenCV(4.8.0) /opt/opencv_contrib-4.8.0/modules/cudev/include/opencv2/cudev/grid/detail/copy.hpp:78: error: (-217:Gpu API call) no kernel image is available for execution on the device in function 'copy'
+```
+your graphics card is no longer supported. Then you must rebuild OpenCV from source.
+
 
 ## Contribute
 You are welcome to contribute to every part of this project.
