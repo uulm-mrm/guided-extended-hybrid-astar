@@ -1,9 +1,16 @@
 # Guided and Extended Hybrid A* 
 
-Arxiv Pre-Print: https://arxiv.org/abs/2310.06974
-
-## Disclaimer
-This is work in progress and is prone to changes in the future, e.g. a shift to C++ only is planned. 
+## Citation
+Arxiv Pre-Print: https://arxiv.org/abs/2310.06974  
+The paper can be cited as stated below.
+```
+@article{schumann2023efficient,
+   author={Oliver Schumann and Michael Buchholz and Klaus Dietmayer},
+   journal = {preprint, accepted to IEEE Int. Conf. on Intell. Transportation Syst. (ITSC)},
+   title={Efficient Path Planning in Large Unknown Environments with Switchable System Models for Automated Vehicles}, 
+   year = {2023},
+}
+```
 
 ## Setup
 Clone the repository and update the submodules.
@@ -67,8 +74,7 @@ You are welcome to contribute to every part of this project.
 Given the fact, that the python part is already planned to be replaced by C++, it would be more beneficial to contribute to the C++ part :)
 
 ## Credits
-The provided repository uses code which was published by other developers. A detailed enumeration can be found in the planner
-under src/freespace_planner/LICENSES.yaml
+The provided repository uses code which was published by other developers. A detailed enumeration can be found here: [src/freespace_planner/LICENSES.yaml](src/freespace_planner/LICENSES.yaml)
 - [fitpack](https://github.com/scipy/scipy/tree/main/scipy/interpolate/fitpack): spline routines of scipy
 - [pyReedsShepp](https://github.com/ghliu/pyReedsShepp): RS Curve generation
 - [VoronoiDiagramGenerator](https://web.archive.org/web/20131207065132/http://www.skynet.ie/~sos/mapviewer/voronoi.php): Voronoi diagram generation
