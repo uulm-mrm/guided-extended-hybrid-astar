@@ -1,4 +1,5 @@
 # Guided and Extended Hybrid A* 
+A Hybrid-A* planner with early stopping for efficient path planning. Further, the capabilities of the U-Shift vehicles can be activated to enable the extended abilities to rotate around its rear axis. 
 
 ## Citation
 Arxiv Pre-Print: https://arxiv.org/abs/2310.06974  
