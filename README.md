@@ -3,6 +3,14 @@ A Hybrid-A* planner with early stopping for efficient path planning. Further, th
 
 <img align="center" src="https://github.com/uulm-mrm/guided-extended-hybrid-astar/blob/main/path_on_parking_search_tree.png" width="400">
 
+## Videos
+### Known and Unknown Environments
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/k8ezypm78WQ/0.jpg)](https://www.youtube.com/watch?v=k8ezypm78WQ)
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/hHTfiry8gd0/0.jpg)](https://www.youtube.com/watch?v=hHTfiry8gd0)
+
+### Advanced motion capabilities
+[![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/5uQWnyPqYFw/0.jpg)](https://www.youtube.com/watch?v=5uQWnyPqYFw)
+
 ## Citation
 Arxiv Pre-Print: https://arxiv.org/abs/2310.06974  
 The paper can be cited as stated below.
