@@ -1,6 +1,8 @@
 # Guided and Extended Hybrid A* 
 A Hybrid-A* planner with early stopping for efficient path planning. Further, the capabilities of the U-Shift vehicles can be activated to enable the extended abilities to rotate around its rear axis. 
 
+<img align="center" src="https://github.com/uulm-mrm/guided-extended-hybrid-astar/blob/feat_img_in_readme/path_on_parking_search_tree.png" width="400">
+
 ## Citation
 Arxiv Pre-Print: https://arxiv.org/abs/2310.06974  
 The paper can be cited as stated below.
