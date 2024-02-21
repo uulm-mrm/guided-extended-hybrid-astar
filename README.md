@@ -1,12 +1,30 @@
 # Guided and Extended Hybrid A* 
+  * [Description](#description)
+  * [Links](#links)
+  * [Citation](#citation)
+  * [Videos](#videos)
+    + [Known and Unknown Environments](#known-and-unknown-environments)
+    + [Advanced motion capabilities](#advanced-motion-capabilities)
+  * [Setup](#setup)
+  * [Configuration](#configuration)
+    + [Sim configuration](#sim-configuration)
+    + [Library configuration](#library-configuration)
+  * [Troubleshooting](#troubleshooting)
+    + [GLFW Error](#glfw-error)
+    + [Graphics Card not supported](#graphics-card-not-supported)
+  * [Contribute](#contribute)
+  * [Credits](#credits)
+
+## Description
 A Hybrid-A* planner with early stopping for efficient path planning.  
 Further, the capabilities of the U-Shift vehicles can be activated to enable the extended abilities to rotate around its rear axis. 
+<img align="left" src="https://github.com/uulm-mrm/guided-extended-hybrid-astar/blob/main/path_on_parking_search_tree.png" width="400">  
+<img align="center" src="https://github.com/uulm-mrm/guided-extended-hybrid-astar/assets/57749046/df41c8cb-8261-4dd7-a64d-efae3bb90998" width="330">  
 
-<img align="center" src="https://github.com/uulm-mrm/guided-extended-hybrid-astar/blob/main/path_on_parking_search_tree.png" width="400">
 
 ## Links
 Arxiv Pre-Print: https://arxiv.org/abs/2310.06974  
-IEE: https://doi.org/10.1109/ITSC57777.2023.10422264
+IEE Explore: https://doi.org/10.1109/ITSC57777.2023.10422264
 
 ## Citation
 The paper was published at the IEEE ITSC 2023 and can be cited as stated below.
