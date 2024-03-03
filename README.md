@@ -11,14 +11,12 @@
     + [Library configuration](#library-configuration)
   * [Troubleshooting](#troubleshooting)
     + [GLFW Error](#glfw-error)
-    + [Graphics Card not supported](#graphics-card-not-supported)
   * [Contribute](#contribute)
   * [Credits](#credits)
 
 ## Description
 A Hybrid-A* planner with early stopping for efficient path planning.  
 Further, the capabilities of the U-Shift vehicles can be activated to enable the extended abilities to rotate around its rear axis. 
-
 <img align="left" src="https://github.com/uulm-mrm/guided-extended-hybrid-astar/blob/main/path_on_parking_search_tree.png" width="400">  
 <img align="center" src="https://github.com/uulm-mrm/guided-extended-hybrid-astar/assets/57749046/df41c8cb-8261-4dd7-a64d-efae3bb90998" width="330">  
 
@@ -65,18 +63,13 @@ Run the docker, everything from here will be executed inside it.
 ```
 ./run.sh
 ```
-Build and install the planner...
-```
-./build.sh
-./install.sh
-```
-...and run the sim.
-```
-./run_sim.sh
-```
 
-Per default, the visualization of the visited nodes and internal heuristics is enabled.
-This slows down the visualization and can be disabled in ```visualization.py```
+Follow the instructions given at the start of the docker
+```
+colcon build  
+source colcon_build/install/setup.bash
+ros2 run freespace_planner simulation.py
+```
 
 ## Configuration
 ### Sim configuration
@@ -85,28 +78,17 @@ The SCENARIO_NAME controls which map to use.
 ALL_VISIBLE decides if the environment is previously known.
 
 ### Library configuration
-```src/freespace_planner/library/config/config.yml```  
-Here, all the library params can be adjusted. They can also be set in the Gui. Scroll down on the right side.
+```
+src/freespace_planner/library/config/config.yml  
+src/freespace_planner/library/config/params.yml  
+```  
+Here, all the library params can be adjusted. Some can also be set during runtime in the Gui. 
 
 ## Troubleshooting
 ### GLFW Error
 If you receive the error: 
-```
-No protocol specified
-Could not initialize GLFW!
-```
-Run the following in your console before running the docker
-```
-xhost +si:localuser:root
-```
-
-### Graphics Card not supported
-If you receive the error
-```
-RuntimeError: OpenCV(4.8.0) /opt/opencv_contrib-4.8.0/modules/cudev/include/opencv2/cudev/grid/detail/copy.hpp:78: error: (-217:Gpu API call) no kernel image is available for execution on the device in function 'copy'
-```
-your graphics card is no longer supported. Then you must rebuild OpenCV from source.
-
+```Could not initialize GLFW!```
+Verify that the DISPLAY variable is set to the same value inside the docker as outside with ```echo $DISPLAY```and set it with e.g. ```export DISPLAY=:1``` 
 
 ## Contribute
 You are welcome to contribute to every part of this project.
@@ -117,5 +99,4 @@ The provided repository uses code which was published by other developers. A det
 - [fitpack](https://github.com/scipy/scipy/tree/main/scipy/interpolate/fitpack): spline routines of scipy
 - [pyReedsShepp](https://github.com/ghliu/pyReedsShepp): RS Curve generation
 - [VoronoiDiagramGenerator](https://web.archive.org/web/20131207065132/http://www.skynet.ie/~sos/mapviewer/voronoi.php): Voronoi diagram generation
-- [nanoflann](https://github.com/jlblancoc/nanoflann): nearest neighbor determination
 

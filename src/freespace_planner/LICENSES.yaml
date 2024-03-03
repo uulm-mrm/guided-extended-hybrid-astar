@@ -1,6 +1,6 @@
 project:
   - files: *
-    copyright: 2023, Oliver Schumann
+    copyright: 2023, Ulm University, Institute of Measurement, Control and Microtechnology
     license: Apache-2.0
 
 software:
@@ -24,22 +24,9 @@ software:
     version: None
     modified: true
 
-  - name: nanoflann
+  - name: fitpack
     files:
-      - library/include/deps_lib/nanoflann.hpp
-      - library/include/deps_lib/KdTreeVectorOfVectorsAdaptors.hpp
-    copyright:
-      - Copyright 2008-2009  Marius Muja (mariusm@cs.ubc.ca). All rights reserved.
-      - Copyright 2008-2009  David G. Lowe (lowe@cs.ubc.ca). All rights reserved.
-      - Copyright 2011-2022  Jose Luis Blanco (joseluisblancoc@gmail.com).
-    license: BSD-3-Clause
-    url: https://github.com/jlblancoc/nanoflann
-    version: f1e47f0dbae72c11b008fd0d5b1191d9ba1f29bb
-    modified: false
-
-  - name: Scipy
-    files:
-      - library/deps/scipy/*
+      - library/src/deps_lib/fitpack
     copyright: 2001-2002 Enthought, Inc. 2003-2023, SciPy Developers. All rights reserved.
     license: BSD-3-Clause
     url: https://github.com/scipy/scipy/tree/main/scipy/interpolate/fitpack

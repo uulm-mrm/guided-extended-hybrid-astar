@@ -7,6 +7,9 @@
 
 #include <cmath>
 #include <vector>
+#include <cstdint>
+
+#include "params.hpp"
 
 namespace util
 {
@@ -18,17 +21,19 @@ double constrainAngleZero2Pi(double angle);
 
 double constrainAngleMinPIPlusPi(double angle);
 
-double getSignedAngleDiff(double angle1, double angle2);
-
 double getAngleDiff(double angle1, double angle2);
 
-double getAngleDiffInDir(double goal_angle, double start_angle, int dir);
+bool areAnglesEqual(double angle1, double angle2, double abs_tol);
 
 template <typename T>
 int sgn(T val)
 {
   return (T(0) < val) - (val < T(0));
 }
+
+double getDrivenAngleDiff(double angle1, double angle2, char direction);
+
+std::vector<double> angleArange(double angle1, double angle2, char direction, double angle_res);
 
 /**
  * extend a vector with another one
@@ -41,8 +46,11 @@ void extend_vector(std::vector<T>& vec, std::vector<T>& v_add)
 {
   vec.reserve(vec.size() + distance(v_add.begin(), v_add.end()));
   vec.insert(vec.end(), std::make_move_iterator(v_add.begin()), std::make_move_iterator(v_add.end()));
-  //  vec.insert(vec.end(), v_add.begin(), v_add.end());
 }
+
+double angleLerp(double t, double yaw1, double yaw2);
+
+double angleInterpolation(double s, const std::vector<double>& s_list, const std::vector<double>& yaw_list);
 
 double bilinearInterpolation(double q11,
                              double q12,
@@ -58,11 +66,7 @@ double bilinearInterpolation(double q11,
 template <typename T>
 static std::vector<T> slice(std::vector<T> const& v, size_t start, size_t end)
 {
-  auto first = v.cbegin() + start;
-  auto last = v.cbegin() + end + 1;
-
-  std::vector<T> vec(first, last);
-  return vec;
+  return { v.cbegin() + start, v.cbegin() + end + 1 };
 }
 
 template <typename T>

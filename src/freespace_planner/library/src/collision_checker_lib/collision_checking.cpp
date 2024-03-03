@@ -3,6 +3,8 @@
 //
 #include "collision_checker_lib/collision_checking.hpp"
 
+#define USE_GPU_MASK_DILATE false
+
 /**
  * Initialize the collision checking lib from the config file
  * @param path2config
@@ -11,22 +13,17 @@ void CollisionChecker::initialize(size_t patch_dim, const std::string& path2conf
 {
   YAML::Node config = YAML::LoadFile(path2config);
 
-  // const Parameters loaded from file
-  gm_res_ = config["GM_RES"].as<double>();
   yaw_res_coll_ = config["YAW_RES_COLL"].as<int>();
   yaw_res_coll_rad_ = yaw_res_coll_ * util::TO_RAD;
   nb_disc_yaws_ = 360 / yaw_res_coll_;
   safety_distance_m_ = config["SAFETY_DISTANCE_M"].as<double>();
   search_dist_ = config["SEARCH_DIST"].as<double>();
+  search_dist_cells_ = search_dist_ * grid_tf::con2gm_;  // in cells
   min_thresh_ = config["MIN_THRESH"].as<int>();
   max_thresh_ = config["MAX_THRESH"].as<int>();
   len_per_disk_ = config["LEN_PER_DISK"].as<double>();
   double_disk_rows_ = config["DOUBLE_DISK_ROWS"].as<bool>();
   max_patch_ins_dist_ = config["MAX_PATCH_INS_DIST"].as<double>();
-
-  // Transforms
-  // grid_tf::con2gm_ = 1 / gm_res_;
-  grid_tf::updateGmRes(gm_res_);
 
   resetPatch(patch_dim);
 
@@ -49,6 +46,14 @@ double CollisionChecker::getDiskRadius(double length, double width, unsigned int
   return sqrt(((length * length) / (nb_disks * nb_disks) + (width * width)) / 4);
 }
 
+/**
+ * Calculate disk positions to store them in a lookup table
+ * @param radius
+ * @param nb_disks
+ * @param width
+ * @param lb
+ * @return
+ */
 std::vector<double> CollisionChecker::getDiskPositions(double radius, unsigned int nb_disks, double width, double lb)
 {
   std::vector<double> disk_positions;
@@ -70,30 +75,31 @@ std::vector<double> CollisionChecker::getDiskPositions(double radius, unsigned i
 void CollisionChecker::calculateDisks()
 {
   // set number and width of vehicle
-  double eff_width = Vehicle::width_;
-  int disk_mult = 1;
-  unsigned int eff_nb_disks = static_cast<int>(std::ceil(Vehicle::length_ / CollisionChecker::len_per_disk_));
+  const unsigned int eff_nb_disks = static_cast<int>(std::ceil(Vehicle::length_ / CollisionChecker::len_per_disk_));
 
-  if (double_disk_rows_)
-  {
-    disk_mult = 2;
-  }
+  //  int disk_mult = 1;
+  //  if (double_disk_rows_)
+  //  {
+  //    disk_mult = 2;
+  //  }
+  const int disk_mult = (double_disk_rows_) ? 2 : 1;
 
   nb_disks_ = disk_mult * eff_nb_disks;
 
   // set effective width
-  eff_width = Vehicle::width_ / disk_mult;
+  const double eff_width = Vehicle::width_ / disk_mult;
 
   // Resize vectors to actual size
   disk_centers_.resize_and_reset(nb_disks_, nb_disc_yaws_, Point<int>(0, 0));
   disk_centers_.setName("disk_centers");
 
   // Calculate disk radius and position
-  double disk_radius = getDiskRadius(Vehicle::length_, eff_width, eff_nb_disks);
-  std::vector<double> disk_positions = getDiskPositions(disk_radius, eff_nb_disks, eff_width, Vehicle::lb_);
+  const double disk_radius = getDiskRadius(Vehicle::length_, eff_width, eff_nb_disks);
+  const std::vector<double> disk_positions = getDiskPositions(disk_radius, eff_nb_disks, eff_width, Vehicle::lb_);
 
   // Prepare dilation filter
-  double safety_disk_radius = disk_radius + safety_distance_m_;
+  const double safety_disk_radius = disk_radius + safety_distance_m_;
+  disk_r_ = safety_disk_radius;
   disk_r_c_ = std::ceil(safety_disk_radius * grid_tf::con2gm_);
   disk_diameter_c_ = 2 * disk_r_c_ + 1;
 
@@ -102,14 +108,14 @@ void CollisionChecker::calculateDisks()
   dilateFilter_ = cv::cuda::createMorphologyFilter(cv::MORPH_DILATE, CV_8UC1, dil_kernel_);
 
   // Precalculate disk positions
-  unsigned int max_yaw_idx = (360 / yaw_res_coll_);
+  const unsigned int max_yaw_idx = (360 / yaw_res_coll_);
   double yaw = 0;
   for (int yaw_idx = 0; yaw_idx < max_yaw_idx; yaw_idx++)
   {
     yaw = yaw_idx * yaw_res_coll_rad_;
 
     int disk_idx = 0;
-    for (auto disk_pos : disk_positions)
+    for (const auto disk_pos : disk_positions)
     {
       double y_offset = 0;
 
@@ -143,7 +149,7 @@ void CollisionChecker::insertMinipatches(const std::map<std::pair<int, int>, Min
                                          bool only_nearest,
                                          bool only_new)
 {
-  for (auto [patch_idx, minipatch] : minipatches)
+  for (const auto& [patch_idx, minipatch] : minipatches)
   {
     if (only_new and !minipatch.is_new_)
     {
@@ -186,23 +192,73 @@ void CollisionChecker::passLocalMap(const Vec2DFlat<uint8_t>& local_map, const P
 
 void CollisionChecker::processSafetyPatch()
 {
-  // Copy to matImg
-  cv::Mat matImg(patch_dim_, patch_dim_, CV_8UC1);
-  std::memcpy(matImg.data, patch_arr_.getPtr(), patch_dim_ * patch_dim_ * sizeof(uint8_t));
+  /// CPU
+  // input mat
+  cv::Mat matImg(static_cast<int>(patch_dim_), static_cast<int>(patch_dim_), CV_8UC1, patch_arr_.getPtr());
 
-  const cv::Mat free_mask = matImg < min_thresh_;
-  const cv::Mat occ_mask = matImg > max_thresh_;
-  matImg.setTo(FREE, free_mask);
-  matImg.setTo(OCC, occ_mask);
-  matImg.setTo(UNKNOWN, (1 - free_mask) & (1 - occ_mask));
+  // output mat
+  cv::Mat out_map(static_cast<int>(patch_dim_), static_cast<int>(patch_dim_), CV_8UC1, patch_safety_arr_.getPtr());
 
-  cv::cuda::GpuMat imgGpu;
-  imgGpu.upload(matImg);
-  dilateFilter_->apply(imgGpu, imgGpu);
-  imgGpu.download(matImg);
+  if (not USE_GPU_MASK_DILATE)
+  {
+    /// CPU
+    // data structs
+    cv::Mat free_mask_gpu;
+    cv::Mat inv_free_mask_gpu;
+    cv::Mat occ_mask_gpu;
+    cv::Mat inv_occ_mask_gpu;
+    cv::Mat unknown_mask_gpu;
 
-  std::memcpy(patch_safety_arr_.getPtr(), matImg.data, patch_dim_ * patch_dim_ * sizeof(uint8_t));
+    // mask creation
+    cv::compare(matImg, min_thresh_, free_mask_gpu, cv::CMP_LT);
+    cv::compare(matImg, max_thresh_, occ_mask_gpu, cv::CMP_GT);
+    cv::subtract(1, free_mask_gpu, inv_free_mask_gpu);
+    cv::subtract(1, occ_mask_gpu, inv_occ_mask_gpu);
+    cv::bitwise_and(inv_free_mask_gpu, inv_occ_mask_gpu, unknown_mask_gpu);
+
+    out_map.setTo(FREE, free_mask_gpu);
+    out_map.setTo(OCC, occ_mask_gpu);
+    out_map.setTo(UNKNOWN, unknown_mask_gpu);
+
+    cv::dilate(out_map, out_map, dil_kernel_);
+  }
+  else
+  {
+    try
+    {
+      /// GPU
+      // data structs
+      cv::cuda::GpuMat imgGpu;
+      cv::cuda::GpuMat free_mask_gpu;
+      cv::cuda::GpuMat inv_free_mask_gpu;
+      cv::cuda::GpuMat occ_mask_gpu;
+      cv::cuda::GpuMat inv_occ_mask_gpu;
+      cv::cuda::GpuMat unknown_mask_gpu;
+      imgGpu.upload(matImg);
+
+      // mask creation
+      cv::cuda::compare(imgGpu, min_thresh_, free_mask_gpu, cv::CMP_LT);
+      cv::cuda::compare(imgGpu, max_thresh_, occ_mask_gpu, cv::CMP_GT);
+      cv::cuda::subtract(1, free_mask_gpu, inv_free_mask_gpu);
+      cv::cuda::subtract(1, occ_mask_gpu, inv_occ_mask_gpu);
+      cv::cuda::bitwise_and(inv_free_mask_gpu, inv_occ_mask_gpu, unknown_mask_gpu);
+
+      imgGpu.setTo(FREE, free_mask_gpu);
+      imgGpu.setTo(OCC, occ_mask_gpu);
+      imgGpu.setTo(UNKNOWN, unknown_mask_gpu);
+
+      dilateFilter_->apply(imgGpu, imgGpu);
+      imgGpu.download(out_map);
+    }
+    catch (...)
+    {
+      throw std::runtime_error(std::string("OpenCV inside the docker was not compiled for your graphics card! Activate "
+                                           "the CPU-version of this code snippet by setting USE_GPU_MASK_DILATE to "
+                                           "false in collision_checking.cpp:6"));
+    }
+  }
 }
+
 /**
  * Passes a local map to the collision checker
  * @param local_map
@@ -215,8 +271,8 @@ void CollisionChecker::passLocalMapData(const unsigned char* local_map_data, con
   // Boundary checking for x: rows must fit completely into patch
   // TODO insert partial, too!
   const int max_col_idx = origin.x + dim;
-  int x_start = 0;
-  int dim_eff = dim;
+  const int x_start = 0;
+  const int dim_eff = dim;
   //  if (origin.x < 0)
   //  {
   //    x_start = -origin.x;
@@ -233,27 +289,8 @@ void CollisionChecker::passLocalMapData(const unsigned char* local_map_data, con
     return;
   }
 
-  //  // Copy to matImg
-  //  cv::Mat matImg(dim, dim, CV_8UC1);
-  //  std::memcpy(matImg.data, local_map_data, dim * dim * sizeof(uint8_t));
-  //
-  //  const cv::Mat free_mask = matImg < min_thresh_;
-  //  const cv::Mat occ_mask = matImg > max_thresh_;
-  //  matImg.setTo(FREE, free_mask);
-  //  matImg.setTo(OCC, occ_mask);
-  //  matImg.setTo(UNKNOWN, (1 - free_mask) & (1 - occ_mask));
-  //
-  //  cv::cuda::GpuMat imgGpu;
-  //  imgGpu.upload(matImg);
-  //  dilateFilter_->apply(imgGpu, imgGpu);
-  //  imgGpu.download(matImg);
-
-  // TODO (Schumann) edge cases are not taken into account here! Collisions at patch border may occur!
-  // TODO (Schumann) dilation must be applied on the global patch after insertion of all patches!
-
   // Copy values of local map to internal patch
-  //  int size_data_safety = sizeof(uint8_t);
-  int size_data_patch = sizeof(uint8_t);
+  const int size_data_patch = sizeof(uint8_t);
   for (size_t i = 0; i < dim; ++i)
   {
     // Boundary checking for y: only rows inside patch are copied completely
@@ -275,22 +312,27 @@ void CollisionChecker::passLocalMapData(const unsigned char* local_map_data, con
   }
 }
 
-std::vector<Point<int>> CollisionChecker::returnDiskPositions(double yaw)
+/**
+ * Return center points of disk positions given the specified yaw pos in meters for visualization
+ * @param yaw
+ * @return
+ */
+std::vector<Point<double>> CollisionChecker::returnDiskPositions(double yaw)
 {
-  std::vector<Point<int>> points;
+  std::vector<Point<double>> points;
   points.reserve(nb_disks_);
-  int yaw_idx = getYawIdx(yaw);
+  const int yaw_idx = getYawIdx(yaw);
 
   for (int disk_idx = 0; disk_idx < nb_disks_; ++disk_idx)
   {
-    points.push_back(disk_centers_(yaw_idx, disk_idx));
+    points.push_back(grid_tf::grid2utm(disk_centers_(yaw_idx, disk_idx).toDouble()));
   }
   return points;
 }
 
 int CollisionChecker::getYawIdx(double yaw)
 {
-  int yaw_idx = static_cast<int>(util::constrainAngleZero2Pi(yaw) / yaw_res_coll_rad_);
+  const int yaw_idx = static_cast<int>(util::constrainAngleZero2Pi(yaw) / yaw_res_coll_rad_);
   return std::min(yaw_idx, static_cast<int>(nb_disc_yaws_ - 1));
 }
 

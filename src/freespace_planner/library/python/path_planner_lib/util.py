@@ -3,9 +3,11 @@
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 import itertools
+import sys
 import timeit
 from functools import wraps
 from math import pi
+import time
 
 import numpy as np
 import math
@@ -16,7 +18,13 @@ from numpy.typing import ArrayLike
 from .data_structures import PoseDouble
 
 
-def timeme(original_function=None, N: int = 1):
+def set_and_measure(timestamp: float) -> tuple[float, float]:
+    new_timestamp: float = time.perf_counter()
+    delta_time: float = new_timestamp - timestamp
+    return delta_time, new_timestamp
+
+
+def timeme(original_function=None, N: int = 1, logger=None):
 
     def _decorate(function):
         @wraps(function)
@@ -27,7 +35,10 @@ def timeme(original_function=None, N: int = 1):
                 result = function(*args, **kwargs)
             end_time = timeit.default_timer()
             total_time = (end_time - start_time) / N
-            print(f'Function {function.__name__} Took {total_time:.6f} s ({N} runs)')
+            if logger is None:
+                print(f'Function {function.__name__} Took {total_time:.6f} s ({N} runs)')
+            else:
+                logger.info(f'Function {function.__name__} Took {total_time:.6f} s ({N} runs)')
             return result
 
         return timeit_wrapper
@@ -41,6 +52,13 @@ def timeme(original_function=None, N: int = 1):
 def load_lib_config(share_dir: str):
     # Load config data
     filename = share_dir + "/config/config.yml"
+    f = open(filename)
+    return yaml.safe_load(f)
+
+
+def load_lib_params(share_dir: str):
+    # Load param data
+    filename = share_dir + "/config/params.yml"
     f = open(filename)
     return yaml.safe_load(f)
 
@@ -64,79 +82,64 @@ def pairwise(iterable: Iterable):
     return zip(a, b)
 
 
-def pi_pi2zero_2pi(angle: float) -> float:
+def angles_equal(angle1: float, angle2: float, abs_tol: float) -> bool:
     """
-    Cast angle from [-pi, pi] to [0, 2*pi]
-    Args:
-        angle:
-
-    Returns:
-
-    """
-    angle = angle % (2*pi)
-    if angle < 0:
-        angle += 2*pi
-    return angle
-
-
-def angles_equal_0_2pi(angle1: float, angle2: float, tol: float) -> bool:
-    """
-    Angles must already be in range [0 2pi]
     Args:
         angle1:
         angle2:
-        tol:
+        abs_tol:
 
     Returns:
 
     """
 
-    angle1 = pi_pi2zero_2pi(angle1)
-    angle2 = pi_pi2zero_2pi(angle2)
+    diff: float = angle_diff(angle1, angle2)
 
-    angle_diffs = [angle1 - angle2, angle2 - angle1]
-    angle_diffs = [diff + 2 * pi if diff < 0 else diff for diff in angle_diffs]
-    diff = np.min(np.abs(angle_diffs))
-
-    if diff < np.deg2rad(tol):
+    if abs(diff) < np.deg2rad(abs_tol):
         return True
     return False
 
 
+def constrain_angle_minpi_pluspi(angle: float) -> float:
+    """
+    Angles are casted to [-pi, pi)
+    :param angle:
+    :return:
+    """
+    return (angle + math.pi) % (2*math.pi) - math.pi
+
+
+def constrain_angle_minpi_pluspi_fmod(angle: float) -> float:
+    """
+    Angles are cast to [-pi, pi) using fmod to debug for cpp development
+    :param angle:
+    :return:
+    """
+
+    while angle < 0:
+        angle += 2 * math.pi
+
+    return math.fmod(angle+math.pi, 2*math.pi) - math.pi
+
+
 def angle_diff(a1: float, a2: float) -> float:
+    """
+    :param a1:
+    :param a2:
+    :return:
+    """
+
+    # ensure [-pi, pi)
+    a2 = constrain_angle_minpi_pluspi(a2)
+    a1 = constrain_angle_minpi_pluspi(a1)
+
     diff = a2 - a1
-    if diff > math.pi:
-        diff -= 2 * math.pi
-    elif diff < -math.pi:
-        diff += math.pi
-    else:
-        pass
 
-    return diff
-
-
-def get_angle_diffs(yaws: list) -> list:
-    return [angle_diff(yaw1, yaw2) for (yaw1, yaw2) in pairwise(yaws)]
+    return constrain_angle_minpi_pluspi(diff)
 
 
 def get_curvatures(yaws: list, ds: float) -> list:
     return [angle_diff(yaw1, yaw2) / ds for (yaw1, yaw2) in pairwise(yaws)]
-
-
-def get_curvature_from_xy(x_vals: list, y_vals: list):
-    # Taken from: https://www.delftstack.com/howto/numpy/curvature-formula-numpy/
-    try:
-        x_t = np.gradient(x_vals)
-        y_t = np.gradient(y_vals)
-    except ValueError:
-        return np.zeros((len(x_vals)))
-
-    xx_t = np.gradient(x_t)
-    yy_t = np.gradient(y_t)
-
-    # Formula of the absolute curvature depending on the gradients
-    curvature = -(xx_t * y_t - x_t * yy_t) / (x_t * x_t + y_t * y_t) ** 1.5
-    return curvature
 
 
 def get_current_map_lims(ego_gm_patch: PoseDouble, dim: int) -> tuple[list[int], list[int]]:

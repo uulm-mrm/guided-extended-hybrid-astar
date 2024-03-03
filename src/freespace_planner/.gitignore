@@ -1,4 +1,3 @@
-*.data
 ci_artefacts/*.png
 *.ini
 doc/

@@ -101,10 +101,11 @@ public:
     std::vector<double> x_list;
     std::vector<double> y_list;
     std::vector<double> yaw_list;
+    std::vector<double> delta_list;
     double cost = -1;
   };
 
-  explicit ReedsSheppStateSpace(double turningRadius) : rho_(turningRadius)
+  explicit ReedsSheppStateSpace(double turningRadius, double wb) : rho_(turningRadius), wb_(wb)
   {
   }
 
@@ -113,7 +114,7 @@ public:
   void
   type(const Pose<double>& q_0, const Pose<double>& q_1, ReedsSheppPathTypeCallback callback, void* user_data) const;
 
-  ReedsSheppPath sample(const Pose<double>& q_0, const Pose<double>& q_1, double step_size);
+  ReedsSheppPath sample(const Pose<double>& q_0, const Pose<double>& q_1, double step_size) const;
 
   /** \brief Return the shortest Reeds-Shepp path from SE(2) state state1 to SE(2) state state2 */
   [[nodiscard]] ReedsSheppPath reedsShepp(const Pose<double>& q_0, const Pose<double>& q_1) const;
@@ -123,6 +124,7 @@ protected:
 
   /** \brief Turning radius */
   double rho_;
+  double wb_;
 };
 
 #endif

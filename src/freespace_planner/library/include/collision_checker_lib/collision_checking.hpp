@@ -1,17 +1,18 @@
 //
 // Created by schumann on 11.05.22.
 //
-#ifndef PLANNING_BINDINGS_COLLISION_CHECKING_HPP
-#define PLANNING_BINDINGS_COLLISION_CHECKING_HPP
+#ifndef COLLISION_CHECKING_HPP
+#define COLLISION_CHECKING_HPP
 
 #include <cmath>
 #include <vector>
 #include <iostream>
-#include <execution>  // for parallel execution of std::transform...
+#include <exception>
 #include "opencv2/imgproc.hpp"
 #include "opencv2/highgui.hpp"
 #include "opencv2/cudafilters.hpp"
 #include "opencv2/cudaimgproc.hpp"
+#include <opencv2/cudaarithm.hpp>
 
 #include "yaml-cpp/yaml.h"
 
@@ -37,9 +38,9 @@ class CollisionChecker
 public:
   enum GRID_VAL
   {
-    FREE,     // 2
+    FREE,     // 0
     UNKNOWN,  // 1
-    OCC,      // 0
+    OCC,      // 2
     SENSOR_FREE = 255,
     SENSOR_UNKNOWN = 127,
     SENSOR_OCC = 0
@@ -61,22 +62,18 @@ private:
   inline static cv::Mat dil_kernel_;
   inline static cv::Ptr<cv::cuda::Filter> dilateFilter_;
   inline static double search_dist_;
-  inline static double max_patch_ins_dist_;
+  inline static double search_dist_cells_;
 
   // array of disk centers
   inline static Vec2DFlat<Point<int>> disk_centers_;
 
 public:
-  inline static double gm_res_;
+  inline static double max_patch_ins_dist_;
+  inline static double disk_r_;
   inline static int disk_r_c_;
 
   inline static Vec2DFlat<uint8_t> patch_arr_;
   inline static Vec2DFlat<uint8_t> patch_safety_arr_;
-
-  inline static size_t getPatchDim()
-  {
-    return patch_dim_;
-  }
 
   static void initialize(size_t patch_dim, const std::string& path2config);
 
@@ -86,7 +83,7 @@ public:
 
   static std::vector<double> getDiskPositions(double radius, unsigned int nb_disks, double width, double lb);
 
-  static std::vector<Point<int>> returnDiskPositions(double yaw);
+  static std::vector<Point<double>> returnDiskPositions(double yaw);
 
   static void resetPatch(size_t patch_dim);
 
@@ -121,4 +118,4 @@ public:
                                  const std::vector<double>& y_list,
                                  const std::vector<double>& yaw_list);
 };
-#endif  // PLANNING_BINDINGS_COLLISION_CHECKING_HPP
+#endif  // COLLISION_CHECKING_HPP

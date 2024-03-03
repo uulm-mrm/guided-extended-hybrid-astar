@@ -7,8 +7,6 @@
 #include <iostream>
 #include <filesystem>
 #include <vector>
-#include <execution>
-#include <opencv2/opencv.hpp>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
@@ -17,8 +15,8 @@
 constexpr size_t GM_DIM = 801;
 constexpr double PI = 3.14159265358979323846;
 constexpr double DEG2RAD = PI / 180;
-constexpr double YAW_RES = 1 * DEG2RAD;
-constexpr int NB_PRECASTS = 360;
+constexpr double YAW_RES = 2 * DEG2RAD;
+constexpr int NB_PRECASTS = 180;
 
 namespace py = pybind11;
 
@@ -29,6 +27,49 @@ enum
   UNKNOWN = 127,
   OCCUPIED = 255,
   PLACEHOLDER = 3
+};
+
+template <typename T>
+class Arr2DFlat
+{
+private:
+  std::array<T, GM_DIM * GM_DIM> arr_;
+
+public:
+  void setTo(int val)
+  {
+    std::fill(arr_.begin(), arr_.end(), val);
+  }
+
+  [[nodiscard]] std::pair<size_t, size_t> getDims() const
+  {
+    return { GM_DIM, GM_DIM };
+  }
+
+  [[nodiscard]] py::array_t<T> getNumpyArr() const
+  {
+    return py::array_t<T>({ GM_DIM, GM_DIM }, arr_.data());
+  }
+
+  [[nodiscard]] T operator()(int y_index, int x_index) const
+  {
+    return arr_[y_index * GM_DIM + x_index];
+  }
+
+  [[nodiscard]] T& operator()(int y_index, int x_index)
+  {
+    return arr_[y_index * GM_DIM + x_index];
+  }
+
+  T* getPtr()
+  {
+    return arr_.data();
+  }
+
+  [[nodiscard]] T* getPtr() const
+  {
+    return arr_.data();
+  }
 };
 
 class PrecastDB
@@ -51,11 +92,10 @@ class GridMapSim
 {
 private:
   inline static bool is_initialized_ = false;
-  inline static const int middle_ = static_cast<int>(round(static_cast<double>(GM_DIM) / 2));
-  inline static const cv::Mat kernel_ = cv::Mat();
+  inline static constexpr int middle_ = static_cast<int>(static_cast<double>(GM_DIM - 1) / 2);
 
   inline static std::array<std::vector<PrecastDB>, NB_PRECASTS> precast_list_;
-  inline static std::array<std::array<uint8_t, GM_DIM>, GM_DIM> pmap_;
+  inline static Arr2DFlat<uint8_t> pmap_;
 
 public:
   static void initialize();

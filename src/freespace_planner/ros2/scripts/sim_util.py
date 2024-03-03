@@ -7,6 +7,8 @@ from numpy.typing import NDArray
 
 from path_planner_lib.data_structures import OccEnum
 
+from ament_index_python.packages import get_package_share_directory
+
 
 def load_sim_config(share_dir: str) -> dict:
     # Load config data
@@ -26,7 +28,13 @@ def transform_binary_to_gm(binary_map: NDArray) -> NDArray:
     return grid_map
 
 
-def load_png(filename: str, share_dir: str) -> NDArray:
+def load_png(filename: str) -> NDArray:
+    # filepath = os.path.dirname(__file__)
+    # project_path = pathlib.Path(filepath).parent.parent
+    # package_name = project_path.name
+
+    share_dir = get_package_share_directory("freespace_planner")
+
     # Load png data
     path2env = share_dir + "/sim_data/env_models/" + filename + ".png"
 

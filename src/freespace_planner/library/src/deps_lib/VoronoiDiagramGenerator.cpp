@@ -56,15 +56,17 @@ VoronoiDiagramGenerator::~VoronoiDiagramGenerator()
   }
 }
 
-void VoronoiDiagramGenerator::generateVoronoi_wrapper(const std::vector<std::array<double, POINT_DIM>>& samples,
-                                                      std::vector<std::array<double, POINT_DIM>>& vor_vertices,
-                                                      double minX,
+void VoronoiDiagramGenerator::generateVoronoi_wrapper(const std::vector<cv::Point>& samples,
+                                                      Vec2DFlat<float>& vor_dist_map_,
                                                       double maxX,
-                                                      double minY,
                                                       double maxY,
-                                                      double minDist)
+                                                      double minDist,
+                                                      uint8_t val2add)
 {
   VoronoiDiagramGenerator vdg;
+
+  double minX = 0.0;
+  double minY = 0.0;
 
   // Generate voronoi diagram
   const int numPoints = samples.size();
@@ -76,21 +78,14 @@ void VoronoiDiagramGenerator::generateVoronoi_wrapper(const std::vector<std::arr
   double y_1;
   double x_2;
   double y_2;
-
-  std::array<double, POINT_DIM> coordinate1;
-  std::array<double, POINT_DIM> coordinate2;
   while (vdg.getNext(x_1, y_1, x_2, y_2))
   {
-    coordinate1[0] = x_1;
-    coordinate1[1] = y_1;
-    vor_vertices.push_back(coordinate1);
-    coordinate2[0] = x_2;
-    coordinate2[1] = y_2;
-    vor_vertices.push_back(coordinate2);
+    vor_dist_map_(static_cast<int>(y_1), static_cast<int>(x_1)) = val2add;
+    vor_dist_map_(static_cast<int>(y_2), static_cast<int>(x_2)) = val2add;
   }
 }
 
-bool VoronoiDiagramGenerator::generateVoronoi(const std::vector<std::array<double, POINT_DIM>>& samples,
+bool VoronoiDiagramGenerator::generateVoronoi(const std::vector<cv::Point>& samples,
                                               int numPoints,
                                               double minX,
                                               double maxX,
@@ -118,34 +113,34 @@ bool VoronoiDiagramGenerator::generateVoronoi(const std::vector<std::array<doubl
     return false;
   }
 
-  xmin = samples[0][0];
-  ymin = samples[0][1];
-  xmax = samples[0][0];
-  ymax = samples[0][1];
+  xmin = samples[0].x;
+  ymin = samples[0].y;
+  xmax = samples[0].x;
+  ymax = samples[0].y;
 
   for (i = 0; i < nsites; ++i)
   {
-    sites[i].coord.x = samples[i][0];
-    sites[i].coord.y = samples[i][1];
+    sites[i].coord.x = samples[i].x;
+    sites[i].coord.y = samples[i].y;
     sites[i].sitenbr = i;
     sites[i].refcnt = 0;
 
-    if (samples[i][0] < xmin)
+    if (samples[i].x < xmin)
     {
-      xmin = samples[i][0];
+      xmin = samples[i].x;
     }
-    else if (samples[i][0] > xmax)
+    else if (samples[i].x > xmax)
     {
-      xmax = samples[i][0];
+      xmax = samples[i].x;
     }
 
-    if (samples[i][1] < ymin)
+    if (samples[i].y < ymin)
     {
-      ymin = samples[i][1];
+      ymin = samples[i].y;
     }
-    else if (samples[i][1] > ymax)
+    else if (samples[i].y > ymax)
     {
-      ymax = samples[i][1];
+      ymax = samples[i].y;
     }
 
     // printf("\n%f %f\n",xValues[i],yValues[i]);

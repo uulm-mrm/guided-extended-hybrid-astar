@@ -32,6 +32,10 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
       .def("getDims", &Vec2DFlat<double>::getDims, "returns dims of vector")
       .def("getNumpyArr", &Vec2DFlat<double>::getNumpyArr, "getNumpyArr");
 
+  py::class_<Vec2DFlat<float>>(m, "Vec2DFlatFloat")
+      .def("getDims", &Vec2DFlat<float>::getDims, "returns dims of vector")
+      .def("getNumpyArr", &Vec2DFlat<float>::getNumpyArr, "getNumpyArr");
+
   py::class_<Vec2DFlat<uint8_t>>(m, "Vec2DFlatUint8")
       .def("getDims", &Vec2DFlat<uint8_t>::getDims, "returns dims of vector")
       .def("getNumpyArr", &Vec2DFlat<uint8_t>::getNumpyArr, "getNumpyArr");
@@ -112,8 +116,6 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
 
   py::class_<LaneGraph>(m, "LaneGraph")
       .def(py::init<Point<double>, double>())
-      //      .def("init", &LaneGraph::init, "init")
-      //      .def("reset", &LaneGraph::reset, "reset")
       .def("addPoint", &LaneGraph::addPoint, "addPoint")
       .def_readwrite("edges_", &LaneGraph::edges_, "edges_")
       .def_readwrite("nodes_", &LaneGraph::nodes_, "nodes_");
@@ -172,7 +174,9 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
            [](const std::unordered_map<size_t, NodeDisc>& val) { return py::make_iterator(val.begin(), val.end()); });
 
   py::class_<CollisionChecker>(m, "CollisionChecker")
+      .def_readonly_static("MAX_PATCH_INS_DIST", &CollisionChecker::max_patch_ins_dist_)
       .def_readwrite_static("disk_r_c_", &CollisionChecker::disk_r_c_, "disk_r_c_")
+      .def_readwrite_static("disk_r_", &CollisionChecker::disk_r_, "disk_r_")
       .def("initialize", &CollisionChecker::initialize, "Initializes arrays to the sizes in config")
       .def("calculateDisks", &CollisionChecker::calculateDisks, "calculateDisks")
       .def("insertMinipatches", &CollisionChecker::insertMinipatches, "insertMinipatches")
@@ -195,6 +199,9 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
       .def("processSafetyPatch", &CollisionChecker::processSafetyPatch, "dilate patch for collision checks");
 
   py::class_<HybridAStar>(m, "HybridAStar")
+      .def_readonly_static("GM_RES", &GM_RES)
+      .def_readonly_static("ASTAR_RES", &ASTAR_RES)
+      .def_readonly_static("OUT_OF_HEURISTIC", &HybridAStar::OUT_OF_HEURISTIC)
       .def_readwrite_static("switch_cost_", &HybridAStar::switch_cost_)
       .def_readwrite_static("steer_cost_", &HybridAStar::steer_cost_)
       .def_readwrite_static("steer_change_cost_", &HybridAStar::steer_change_cost_)
@@ -204,6 +211,7 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
 
       .def_readwrite_static("astar_dim_", &AStar::astar_dim_)
       .def_readwrite_static("lane_graph_", &HybridAStar::lane_graph_)
+      .def_readwrite_static("connected_closed_nodes_", &HybridAStar::connected_closed_nodes_)
 
       .def("setSim", &HybridAStar::setSim)
       .def("initialize", &HybridAStar::initialize)
@@ -211,14 +219,11 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
       .def("hybridAStarPlanning",
            &HybridAStar::hybridAStarPlanning,
            "Hybrid A Star algorithm with heuristic creation and path extraction")
-      .def("getClosedSet", &HybridAStar::getClosedSet, "Get closed set (visited nodes")
-      .def("getConnectedClosedNodes", &HybridAStar::getConnectedClosedNodes, "Get closed set (visited nodes")
-      .def("getOpenSet", &HybridAStar::getOpenSet, "Get open set (to be visited nodes")
+      .def("getEmergencyPath", &HybridAStar::getEmergencyPath, "getEmergencyPath")
       .def("getNonhnoobsVal", &HybridAStar::getNonhnoobsVal, "getNonhnoobsVal")
       .def("recalculateEnv", &HybridAStar::recalculateEnv, "recalculateEnv")
       .def("createNode", &HybridAStar::createNode, "createNode")
       .def("getDistance2GlobalGoal", &HybridAStar::getDistance2GlobalGoal, "getDistance2GlobalGoal")
-      .def("getMaxMeanProximityVec", &HybridAStar::getMaxMeanProximityVec, "getMaxMeanProximityVec")
       .def("projEgoOnPath", &HybridAStar::projEgoOnPath, "projEgoOnPath")
       .def("getValidClosePose", &HybridAStar::getValidClosePose, "getValidClosePose")
       .def("resetLaneGraph", &HybridAStar::resetLaneGraph, "resetLaneGraph")
@@ -226,7 +231,14 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
       .def("smoothLaneGraph", &HybridAStar::smoothLaneGraph, "smoothLaneGraph")
       .def("interpolateLaneGraph", &HybridAStar::interpolateLaneGraph, "smoothLaneGraph");
 
-  py::class_<Smoother>(m, "Smoother").def("smooth_path", &Smoother::smooth_path);
+  py::class_<Smoother>(m, "Smoother")
+      .def("smooth_path", &Smoother::smooth_path)
+
+      .def_readwrite_static("max_iter_", &Smoother::max_iter_)
+      .def_readwrite_static("wSmoothness_", &Smoother::wSmoothness_)
+      .def_readwrite_static("wObstacle_", &Smoother::wObstacle_)
+      .def_readwrite_static("wCurvature_", &Smoother::wCurvature_)
+      .def_readwrite_static("alpha_", &Smoother::alpha_opt_);
 
   py::class_<NodeHybrid>(m, "NodeHybrid")
       .def(py::init<int,
@@ -237,8 +249,8 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
                     std::vector<double>,
                     std::vector<double>,
                     std::vector<double>,
+                    std::vector<double>,
                     std::vector<PATH_TYPE>,
-                    double,
                     int64,
                     double,
                     double>())
@@ -251,16 +263,16 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
       .def_readwrite("x_list", &NodeHybrid::x_list)
       .def_readwrite("y_list", &NodeHybrid::y_list)
       .def_readwrite("yaw_list", &NodeHybrid::yaw_list)
+      .def_readwrite("delta_list", &NodeHybrid::delta_list)
       .def_readwrite("types", &NodeHybrid::types)
-      .def_readwrite("steer", &NodeHybrid::steer)
       .def_readwrite("parent_index", &NodeHybrid::parent_index)
       .def_readwrite("cost", &NodeHybrid::cost)
       .def_readwrite("dist", &NodeHybrid::dist);
 
   py::class_<Vehicle>(m, "Vehicle")
+      .def_readwrite_static("vis_vehicle_vertices_", &Vehicle::vis_vehicle_vertices_, "vis_vehicle_vertices_")
       .def("initialize", &Vehicle::initialize, "(re)Initializes the car params")
-      .def("setPose", &Vehicle::setPose, "setPose")
-      .def("getVehicleVertices", &Vehicle::getVehicleVertices, "getVehicleVertices");
+      .def("setPose", &Vehicle::setPose, "setPose");
 
   py::class_<Cartographing>(m, "Cartographing")
       .def("resetPatch", &Cartographing::resetPatch, "resetPatch")
@@ -275,9 +287,21 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
       .def("loadPrevPatch", &Cartographing::loadPrevPatch, "loadPrevPatch");
 
   py::class_<Path>(m, "Path")
+      .def("slice", &Path::slice, "slice")
+      .def(py::init<std::vector<double>,
+                    std::vector<double>,
+                    std::vector<double>,
+                    std::vector<double>,
+                    std::vector<int>,
+                    double,
+                    int,
+                    std::vector<PATH_TYPE>,
+                    bool>())
+
       .def_readwrite("x_list", &Path::x_list)
       .def_readwrite("y_list", &Path::y_list)
       .def_readwrite("yaw_list", &Path::yaw_list)
+      .def_readwrite("delta_list", &Path::delta_list)
       .def_readwrite("direction_list", &Path::direction_list)
       .def_readwrite("cost", &Path::cost)
       .def_readwrite("idx_analytic", &Path::idx_analytic)
@@ -307,20 +331,26 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
       .def_readwrite_static("astar_prox_cost_", &AStar::astar_prox_cost_)
       .def_readwrite_static("astar_movement_cost_", &AStar::astar_movement_cost_)
       .def_readwrite_static("astar_lane_movement_cost_", &AStar::astar_lane_movement_cost_)
+      .def_readwrite_static("closed_set_path_", &AStar::closed_set_path_)
+      .def_readwrite_static("closed_set_guidance_", &AStar::closed_set_guidance_)
+
+      .def_readonly_static("voronoi_dist_", &AStar::voronoi_dist_)
+      .def_readonly_static("obstacle_dist_", &AStar::obstacle_dist_)
 
       .def_readonly_static("movement_cost_map_", &AStar::movement_cost_map_)
       .def_readonly_static("astar_grid_", &AStar::astar_grid_)
       .def_readonly_static("h_prox_arr_", &AStar::h_prox_arr_)
       .def_readonly_static("motion_res_map_", &AStar::motion_res_map_)
+      .def_readwrite_static("restr_geofence_", &AStar::restr_geofence_)
       .def("getAstarPath", &AStar::getAstarPath, "Extracts the discrete a star path")
-      .def("getObsGradX", &AStar::getObsGradX, "getObsGradX")
-      .def("getObsGradY", &AStar::getObsGradY, "getObsGradY")
-      .def("getDistanceHeuristic", &AStar::getDistanceHeuristic, "getDistanceHeuristic");
+      .def("processGeofence", &AStar::processGeofence, "processGeofence");
 
   auto util = m.def_submodule("UtilCpp");
 
   util.def("utm2grid", py::overload_cast<const Point<double>&>(&grid_tf::utm2grid<Point<double>>), "utm2grid");
   util.def("utm2grid", py::overload_cast<const Pose<double>&>(&grid_tf::utm2grid<Pose<double>>), "utm2grid");
+  util.def(
+      "utm2grid", py::overload_cast<const std::vector<double>&>(&grid_tf::utm2grid<std::vector<double>>), "utm2grid");
   util.def(
       "utm2grid", py::overload_cast<const pair_of_vec<double>&>(&grid_tf::utm2grid<pair_of_vec<double>>), "utm2grid");
 
@@ -330,12 +360,22 @@ PYBIND11_MODULE(_hybridastar_planning_lib_api, m)
 
   util.def("grid2utm", py::overload_cast<const Point<double>&>(&grid_tf::grid2utm<Point<double>>), "grid2utm");
   util.def("grid2utm", py::overload_cast<const Pose<double>&>(&grid_tf::grid2utm<Pose<double>>), "grid2utm");
+  util.def(
+      "grid2utm", py::overload_cast<const std::vector<double>&>(&grid_tf::grid2utm<std::vector<double>>), "grid2utm");
+  util.def("grid2utm", py::overload_cast<const Path&>(&grid_tf::grid2utm<Path>), "grid2utm");
+  util.def("grid2utm", py::overload_cast<const double&>(&grid_tf::grid2utm<double>), "grid2utm");
 
   util.def("astar2utm", py::overload_cast<const Point<double>&>(&grid_tf::astar2utm<Point<double>>), "astar2utm");
   util.def("astar2utm", py::overload_cast<const Pose<double>&>(&grid_tf::astar2utm<Pose<double>>), "astar2utm");
   util.def("astar2utm",
            py::overload_cast<const pair_of_vec<double>&>(&grid_tf::astar2utm<pair_of_vec<double>>),
            "astar2utm");
+
+  util.def("utm2astar", py::overload_cast<const Point<double>&>(&grid_tf::utm2astar<Point<double>>), "utm2astar");
+  util.def("utm2astar", py::overload_cast<const Pose<double>&>(&grid_tf::utm2astar<Pose<double>>), "utm2astar");
+  util.def("utm2astar",
+           py::overload_cast<const pair_of_vec<double>&>(&grid_tf::utm2astar<pair_of_vec<double>>),
+           "utm2astar");
 
   util.def("utm2patch_utm", py::overload_cast<const Point<double>&>(&grid_tf::utm2patch_utm), "utm2patch_utm");
   util.def("utm2patch_utm", py::overload_cast<const Pose<double>&>(&grid_tf::utm2patch_utm), "utm2patch_utm");

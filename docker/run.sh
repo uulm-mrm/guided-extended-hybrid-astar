@@ -4,8 +4,8 @@ MODULE_NAME="guided-extended-hybrid-astar"
 DOCKER_IMAGE_NAME=""$MODULE_NAME
 TAG="latest"
 
-DIRECTORY=$(dirname $(realpath $(dirname $0)))
-GOAL_DIR="/opt/${MODULE_NAME}"
+DIRECTORY="/home/$USER"  #$(dirname $(realpath $(dirname $0)))
+GOAL_DIR="/home/$USER"  #opt/${MODULE_NAME}"
 
 xhost +si:localuser:root
 
@@ -18,4 +18,6 @@ docker run \
     -e DISPLAY=$DISPLAY \
     -e SDL_VIDEODRIVER=x11 \
     -e COLORTERM \
+    -w $(dirname $(pwd)) \
+    -e COLCON_HOME=$(dirname $(pwd)) \
     "$DOCKER_IMAGE_NAME:$TAG" "$@"

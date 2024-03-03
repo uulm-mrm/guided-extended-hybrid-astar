@@ -27,12 +27,8 @@ void Vehicle::initialize(double max_steer, double w_b, double l_f, double l_b, d
   r_l_corner_ = Point<double>(-lb_, width_ / 2);
   geo_center_ = (lb_ + lf_) / 2 - lb_;
 
-  vehicle_vertices_ = { f_l_corner_, f_r_corner_, r_r_corner_, r_l_corner_ };
-}
-
-std::vector<Point<double>> Vehicle::getVehicleVertices()
-{
-  return vehicle_vertices_;
+  vehicle_vertices_ = { f_l_corner_, f_r_corner_, r_r_corner_, r_l_corner_, f_l_corner_ };
+  vis_vehicle_vertices_ = { f_l_corner_, f_r_corner_, r_r_corner_, r_l_corner_, f_l_corner_ };
 }
 
 void Vehicle::move(Pose<double>& pose, double distance, double steer)
@@ -87,6 +83,16 @@ MotionPrimitive Vehicle::turn_on_rear_axis(const Pose<double>& pose, double delt
   motion_primitive.x_list_.resize(motion_primitive.nb_elements_, pose.x);
   motion_primitive.y_list_.resize(motion_primitive.nb_elements_, pose.y);
   motion_primitive.dir_list_.resize(motion_primitive.nb_elements_, 1);
+  double delta;
+  if (delta_angle > 0)
+  {
+    delta = util::PI / 2.0;
+  }
+  else
+  {
+    delta = -util::PI / 2.0;
+  }
+  motion_primitive.delta_list_.resize(motion_primitive.nb_elements_, delta);
 
   return motion_primitive;
 }
@@ -95,7 +101,7 @@ MotionPrimitive
 Vehicle::move_car_some_steps(const Pose<double>& pose, double arc_l, double motion_res, int direction, double steer)
 {
   // Number of columns for pose vector
-  auto nb_elements = static_cast<size_t>(round(arc_l / motion_res));
+  const auto nb_elements = static_cast<size_t>(round(arc_l / motion_res));
 
   MotionPrimitive motion_primitive = MotionPrimitive(nb_elements);
 
@@ -109,6 +115,7 @@ Vehicle::move_car_some_steps(const Pose<double>& pose, double arc_l, double moti
     motion_primitive.y_list_.push_back(next_pose.y);
     motion_primitive.yaw_list_.push_back(next_pose.yaw);
     motion_primitive.dir_list_.push_back(direction);
+    motion_primitive.delta_list_.push_back(steer);
   }
 
   return motion_primitive;

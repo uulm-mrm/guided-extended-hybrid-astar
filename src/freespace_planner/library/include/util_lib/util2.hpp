@@ -66,11 +66,6 @@ void copyPatch2Patch(const Point<int>& prev_origin_grid,
   }
 }
 
-std::tuple<double, double, double> getSumSquaredCurvatureChange(const Path& path, double interp_res);
-
-std::tuple<double, double, double> getSumSquaredCurvatureChangeVec(const std::vector<double>& yaw_list,
-                                                                   double interp_res);
-
 double getPathLength(const std::vector<double>& x_list, const std::vector<double>& y_list);
 
 }  // namespace util

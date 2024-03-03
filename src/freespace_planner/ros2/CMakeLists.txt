@@ -1,33 +1,30 @@
+cmake_minimum_required(VERSION 3.18)
 project(freespace_planner)
 
-set(INSTALL_PATH ${SANDBOX_PATH}/install/${PROJECT_NAME})
-set(PYTHON_INST_PATH ${INSTALL_PATH}/lib/python3.10/site-packages)
-
-# Install ini file to keep layout
-if(EXISTS scripts/.simulation.imviz.ini)
-    install(FILES
-            scripts/.simulation.imviz.ini
-            DESTINATION ${INSTALL_PATH}/lib/${PROJECT_NAME}
-    )
-else()
+# we default to Release build type
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# install only symlinks
-set(CMAKE_INSTALL_MODE ABS_SYMLINK)
+find_package(aduulm_cmake_tools REQUIRED)
 
-# TODO Do symlink install for convenience
+aduulm_init_ros2_package()
 
 # Attention these scripts must be made executable manually, if they wish to be executed
 install(PROGRAMS
         scripts/simulation.py
         scripts/sim_util.py
-        DESTINATION ${INSTALL_PATH}/lib/${PROJECT_NAME}
+        DESTINATION lib/${PROJECT_NAME}
 )
 
-# Install simulation data folder
-# Install config folder
 install(DIRECTORY
         scripts/sim_config
         scripts/sim_data
-        DESTINATION ${INSTALL_PATH}/share/${PROJECT_NAME}
-)
+        DESTINATION share/${PROJECT_NAME}
+        )
+
+# Finish the package creation and generate install() commands
+aduulm_create_ros2_package()
+setup_git_hooks(py_FORMATTERS "autopep8")
+
+

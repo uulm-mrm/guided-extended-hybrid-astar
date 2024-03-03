@@ -31,8 +31,8 @@ void HybridAStar::initialize(int patch_dim, const Point<double>& patch_origin_ut
 
   path2data_ = lib_share_dir + "/data";
 
-  gm_res_ = config["GM_RES"].as<double>();
-  astar_res_ = config["PLANNER_RES"].as<double>();
+  gm_res_ = GM_RES;
+  astar_res_ = ASTAR_RES;
   arc_l_ = astar_res_ * 1.5;  // arc length must be longer than the diagonal distance of a cell
 
   astar_yaw_res_deg_ = config["YAW_RES"].as<int>();
@@ -49,12 +49,11 @@ void HybridAStar::initialize(int patch_dim, const Point<double>& patch_origin_ut
   {
     direction_inputs_ = { 1, -1 };
   }
-  // As the heuristic becomes smaller, A* turns into Dijkstra’s Algorithm. As the heuristic becomes larger,
-  // A* turns into Greedy Best First Search.
-  max_brake_acc_ = config["MAX_BRAKE_ACC"].as<double>();
+  comfort_brake_acc_ = config["COMFORT_BRAKE_ACC"].as<double>();
   approx_goal_dist2_ = pow(config["APPROX_GOAL_DIST"].as<double>(), 2);
   approx_goal_angle_rad_ = config["APPROX_GOAL_ANGLE"].as<double>() * util::TO_RAD;
   waypoint_dist_ = config["WAYPOINT_DIST"].as<int>();
+  max_dist4waypoints_ = config["MAX_DIST4WAYPOINTS"].as<int>();
   waypoint_type_ = static_cast<WaypointType>(config["WAYPOINT_TYPE"].as<int>());
   dist_thresh_analytic_ = config["DIST_THRESH_ANALYTIC_M"].as<double>();
   second_rs_steer_factor_ = config["RS_2ND_STEER"].as<double>();
@@ -76,7 +75,7 @@ void HybridAStar::initialize(int patch_dim, const Point<double>& patch_origin_ut
     calculateNonhnoobs();
   }
 
-  grid_tf::updateTransforms(gm_res_, astar_res_, patch_origin_utm_);
+  grid_tf::updateTransforms(patch_origin_utm_);
 
   AStar::initialize(patch_dim, patch_origin_utm, path2config);
   CollisionChecker::initialize(patch_dim, path2config);
@@ -96,7 +95,7 @@ void HybridAStar::reinit(const Point<double>& patch_origin_utm, int patch_dim)
 {
   patch_origin_utm_ = patch_origin_utm;
 
-  grid_tf::updateTransforms(gm_res_, astar_res_, patch_origin_utm_);
+  grid_tf::updateTransforms(patch_origin_utm_);
 
   AStar::reinit(patch_origin_utm, patch_dim);
   CollisionChecker::resetPatch(patch_dim);
@@ -115,10 +114,10 @@ void HybridAStar::reinit(const Point<double>& patch_origin_utm, int patch_dim)
  */
 std::array<double, HybridAStar::NB_STEER> HybridAStar::calcSteeringInputs()
 {
-  double delta_steer = (2 * Vehicle::max_steer_) / static_cast<double>(NB_STEER - 1);
+  const double delta_steer = (2 * Vehicle::max_steer_) / static_cast<double>(NB_STEER - 1);
   std::array<double, HybridAStar::NB_STEER> steering_inputs;
 
-  int n_steer_side = static_cast<int>(floor(NB_STEER / 2));
+  const int n_steer_side = static_cast<int>(floor(NB_STEER / 2));
   double steer;
   // Add steering to the left
   for (int j = 0, i = -n_steer_side; i <= n_steer_side; ++i, ++j)
@@ -167,10 +166,10 @@ bool HybridAStar::verifyIndex(int x_index, int y_index)
 double HybridAStar::getNonhnoobsVal(const NodeHybrid& start_node, const NodeHybrid& goal_node)
 {
   // check if vehicle is inside the patch_info! Verify only the smallest euclidian distance (width/2) == circular around
-  int x_diff = goal_node.x_index - start_node.x_index;
-  int y_diff = goal_node.y_index - start_node.y_index;
-  double max_dist = pow(non_h_no_obs_patch_dim_ / 2, 2);
-  double dist = pow(x_diff, 2) + pow(y_diff, 2);
+  const int x_diff = goal_node.x_index - start_node.x_index;
+  const int y_diff = goal_node.y_index - start_node.y_index;
+  const double max_dist = pow(non_h_no_obs_patch_dim_ / 2, 2);
+  const double dist = pow(x_diff, 2) + pow(y_diff, 2);
 
   if (dist > max_dist)
   {
@@ -178,11 +177,11 @@ double HybridAStar::getNonhnoobsVal(const NodeHybrid& start_node, const NodeHybr
   }
 
   // Calculate indices on patch_info
-  int middle_index = static_cast<int>((non_h_no_obs_patch_dim_ - 1)) / 2;
+  const int middle_index = static_cast<int>((non_h_no_obs_patch_dim_ - 1)) / 2;
   int x_idx_s_patch = middle_index - x_diff;
   int y_idx_s_patch = middle_index - y_diff;
-  int x_idx_g_patch = middle_index;
-  int y_idx_g_patch = middle_index;
+  const int x_idx_g_patch = middle_index;
+  const int y_idx_g_patch = middle_index;
 
   //  LOG_INF("Node is inside patch_info");
 
@@ -195,7 +194,7 @@ double HybridAStar::getNonhnoobsVal(const NodeHybrid& start_node, const NodeHybr
   yaw_idx_diff = static_cast<int>(yaw_idx_diff - min_yaw_idx_) % astar_yaw_dim_ + min_yaw_idx_;
 
   //  double angle_diff = yaw_idx_diff * astar_yaw_res_;
-  double goal_angle = goal_node.yaw_index * astar_yaw_res_;
+  const double goal_angle = goal_node.yaw_index * astar_yaw_res_;
   //  LOG_INF("Angle diff in indices is " << yaw_idx_diff);
   //  LOG_INF("This is an angle of ~= " << angle_diff * util::TO_DEGREES);
 
@@ -205,14 +204,14 @@ double HybridAStar::getNonhnoobsVal(const NodeHybrid& start_node, const NodeHybr
   //  LOG_INF("Y Goal was " << y_idx_g_patch);
 
   // rotate start coordinates around goal coordinates by rotation of goal
-  double sin_angle = sin(-goal_angle);
-  double cos_angle = cos(-goal_angle);
+  const double sin_angle = sin(-goal_angle);
+  const double cos_angle = cos(-goal_angle);
   // translate point back to origin:
   x_idx_s_patch -= x_idx_g_patch;
   y_idx_s_patch -= y_idx_g_patch;
   // rotate point
-  double xnew = x_idx_s_patch * cos_angle - y_idx_s_patch * sin_angle;
-  double ynew = x_idx_s_patch * sin_angle + y_idx_s_patch * cos_angle;
+  const double xnew = x_idx_s_patch * cos_angle - y_idx_s_patch * sin_angle;
+  const double ynew = x_idx_s_patch * sin_angle + y_idx_s_patch * cos_angle;
   // translate point back:
   x_idx_s_patch = static_cast<int>(std::round(xnew + x_idx_g_patch));
   y_idx_s_patch = static_cast<int>(std::round(ynew + y_idx_g_patch));
@@ -220,7 +219,7 @@ double HybridAStar::getNonhnoobsVal(const NodeHybrid& start_node, const NodeHybr
   //  LOG_INF("X is " << x_idx_s_patch);
   //  LOG_INF("Y is " << y_idx_s_patch);
 
-  int yaw_idx = yaw_idx_diff - min_yaw_idx_;
+  const int yaw_idx = yaw_idx_diff - min_yaw_idx_;
   //  LOG_INF("Yaw idx is " << yaw_idx);
 
   //  DebugHelper::show_3d_vec_slice("Current patch_info", non_h_no_obs_, yaw_idx);
@@ -256,30 +255,6 @@ double HybridAStar::calcCost(const NodeHybrid& node,
   const double heuristic_cost = std::max(h_dist, h_non_h_no_obs) * h_dist_cost_;
 
   return heuristic_cost + node.cost;
-}
-
-/**
- * Checks if angles in the range [0, 2pi] are approximately equal
- * @param angle1
- * @param angle2
- * @return
- */
-bool HybridAStar::anglesApproxEqual02Pi(double angle1, double angle2)
-{
-  const std::pair<double, double> angle_diffs = { util::constrainAngleZero2Pi(angle1 - angle2),
-                                                  util::constrainAngleZero2Pi(angle2 - angle1) };
-
-  double angle_diff;
-  if (abs(angle_diffs.first) < abs(angle_diffs.second))
-  {
-    angle_diff = abs(angle_diffs.first);
-  }
-  else
-  {
-    angle_diff = abs(angle_diffs.second);
-  }
-
-  return angle_diff < approx_goal_angle_rad_;
 }
 
 /**
@@ -340,9 +315,9 @@ double HybridAStar::getPathCosts(int x_ind,
     control_cost += switch_cost_;
   }
   // steer penalty
-  control_cost += steer_cost_ * abs(steer);
+  control_cost += steer_cost_ * std::abs(steer);
   // steer change penalty
-  control_cost += steer_change_cost_ * abs(node.steer - steer);
+  control_cost += steer_change_cost_ * std::abs(node.delta_list[0] - steer);
 
   // Update costs to reach the new node. Consists of costs of previous costs, including additional costs caused by
   // steering and the travelled distance, denoted by the arc length
@@ -361,7 +336,7 @@ double HybridAStar::getPathCosts(int x_ind,
   const Pose<double> pose = { node.x_list.back(), node.y_list.back(), yaw };
   const double prox_cost = getProxOfCorners(pose * grid_tf::con2star_) * h_prox_cost_ * arc_l;
 
-  double movement_cost = control_cost + distance_cost + prox_cost;
+  const double movement_cost = control_cost + distance_cost + prox_cost;
 
   return movement_cost;
 }
@@ -375,7 +350,7 @@ double HybridAStar::getPathCosts(int x_ind,
 std::optional<NodeHybrid> HybridAStar::calcRearAxisNode(const NodeHybrid& node, double delta_angle)
 {
   // Move the car in continuous coordinates for a specific arc length
-  double arc_l = 1.0;  // artificial length to scale costs
+  const double arc_l = 1.0;  // artificial length to scale costs
 
   // Move vehicle on motion primitive
   const Pose<double> state{ node.x_list.back(), node.y_list.back(), node.yaw_list.back() };
@@ -406,12 +381,12 @@ std::optional<NodeHybrid> HybridAStar::calcRearAxisNode(const NodeHybrid& node, 
 
   // distribute costs over number of steps with given motion inputs to truncate costs when path is driven along later
   const int nb_elements = static_cast<int>(motion_primitive.nb_elements_);
-  std::vector<double> cont_cost_list(nb_elements, movement_cost / static_cast<double>(nb_elements));
+  //  std::vector<double> cont_cost_list(nb_elements, movement_cost / static_cast<double>(nb_elements));
 
   // Set type of path segment
-  std::vector<PATH_TYPE> types(nb_elements, PATH_TYPE::REAR_AXIS);
+  const std::vector<PATH_TYPE> types(nb_elements, PATH_TYPE::REAR_AXIS);
 
-  auto parent_idx = static_cast<int64_t>(calculateIndex(node.x_index, node.y_index, node.yaw_index));
+  const auto parent_idx = static_cast<int64_t>(calculateIndex(node.x_index, node.y_index, node.yaw_index));
   return { { disc_pose.x,
              disc_pose.y,
              disc_pose.yaw,
@@ -420,8 +395,8 @@ std::optional<NodeHybrid> HybridAStar::calcRearAxisNode(const NodeHybrid& node, 
              motion_primitive.x_list_,
              motion_primitive.y_list_,
              motion_primitive.yaw_list_,
+             motion_primitive.delta_list_,
              types,
-             0,
              parent_idx,
              cost,
              node.dist + 0.0 } };
@@ -500,8 +475,8 @@ HybridAStar::calcNextNode(const NodeHybrid& node, double steer, int direction, d
              motion_primitive.x_list_,
              motion_primitive.y_list_,
              motion_primitive.yaw_list_,
+             motion_primitive.delta_list_,
              types,
-             steer,
              parent_index,
              cost,
              node.dist + arc_len } };
@@ -524,7 +499,7 @@ void HybridAStar::setNeighbors(const NodeHybrid& current, std::vector<NodeHybrid
                 steering_inputs_.begin(),
                 steering_inputs_.end(),
                 [&current, &motion_res, &neighbors](auto steer) {
-                  for (int direction : direction_inputs_)
+                  for (const int direction : direction_inputs_)
                   {
                     // Node is valid
                     if (auto next_node = calcNextNode(current, steer, direction, motion_res, arc_l_))
@@ -584,7 +559,7 @@ cost
 double HybridAStar::getTurnCost(double delta_angle)
 {
   delta_angle = abs(delta_angle);
-  double pi_diff_cost = (std::abs(util::PI - delta_angle) + 0.5 * delta_angle - util::PI / 2) / util::PI;
+  const double pi_diff_cost = (std::abs(util::PI - delta_angle) + 0.5 * delta_angle - util::PI / 2) / util::PI;
   return rear_axis_cost_ * (1 + pi_diff_cost);
 }
 
@@ -593,11 +568,11 @@ double HybridAStar::getTurnCost(double delta_angle)
  * @param path
  * @return
  */
-double HybridAStar::getRAPathCosts(ReedsSheppStateSpace::ReedsSheppPath path)
+double HybridAStar::getRAPathCosts(const ReedsSheppStateSpace::ReedsSheppPath& path)
 {
   double cost = 0;
   // length cost
-  for (auto length : path.lengths)
+  for (const auto length : path.lengths)
   {
     if (length >= 0)
     {
@@ -618,7 +593,7 @@ double HybridAStar::getRAPathCosts(ReedsSheppStateSpace::ReedsSheppPath path)
   }
   cost += prox_cost;
 
-  double yaw_diff = getDrivenAngleDiff(path.yaw_list.front(), path.yaw_list.back(), path.ctypes[1]);
+  const double yaw_diff = util::getDrivenAngleDiff(path.yaw_list.front(), path.yaw_list.back(), path.ctypes[1]);
 
   // General penalty for turning on rear axis, angles different from 180 are penalized more!
   cost += getTurnCost(yaw_diff);
@@ -631,7 +606,7 @@ double HybridAStar::getRAPathCosts(ReedsSheppStateSpace::ReedsSheppPath path)
  * @param path
  * @return
  */
-double HybridAStar::getRSPathCosts(ReedsSheppStateSpace::ReedsSheppPath path)
+double HybridAStar::getRSPathCosts(const ReedsSheppStateSpace::ReedsSheppPath& path)
 {
   double cost = 0;
   const double max_steer = atan(Vehicle::w_b_ / path.radi);
@@ -711,10 +686,13 @@ double HybridAStar::getRSPathCosts(ReedsSheppStateSpace::ReedsSheppPath path)
  * @param rho
  * @return
  */
-ReedsSheppStateSpace::ReedsSheppPath
-HybridAStar::getReedSheppPath(const Pose<double>& start, const Pose<double>& goal, double step_size, double rho)
+ReedsSheppStateSpace::ReedsSheppPath HybridAStar::getReedSheppPath(const Pose<double>& start,
+                                                                   const Pose<double>& goal,
+                                                                   double step_size,
+                                                                   double rho,
+                                                                   double wb)
 {
-  auto rss = ReedsSheppStateSpace(rho);
+  const auto rss = ReedsSheppStateSpace(rho, wb);
   auto path = rss.sample(start, goal, step_size);
 
   // update length to real one
@@ -734,6 +712,7 @@ Path HybridAStar::getFinalPath(const NodeHybrid& final_node, const std::unordere
   std::vector<double> reversed_x = final_node.x_list;
   std::vector<double> reversed_y = final_node.y_list;
   std::vector<double> reversed_yaw = final_node.yaw_list;
+  std::vector<double> reversed_delta = final_node.delta_list;
   std::vector<int> reversed_direct_cont = final_node.dir_list_cont;
   std::vector<PATH_TYPE> reversed_types = final_node.types;
 
@@ -741,38 +720,38 @@ Path HybridAStar::getFinalPath(const NodeHybrid& final_node, const std::unordere
   reverse(reversed_x.begin(), reversed_x.end());
   reverse(reversed_y.begin(), reversed_y.end());
   reverse(reversed_yaw.begin(), reversed_yaw.end());
+  reverse(reversed_delta.begin(), reversed_delta.end());
   reverse(reversed_direct_cont.begin(), reversed_direct_cont.end());
   reverse(reversed_types.begin(), reversed_types.end());
 
-  int64_t nid = final_node.parent_index;
-
   // save start point of analytic expansion
-  int len_analytic = static_cast<int>(reversed_x.size());
+  const int len_analytic = static_cast<int>(reversed_x.size());
 
+  int64_t nid = final_node.parent_index;
   while (nid != -1)
   {
     NodeHybrid node = closet_set.at(nid);
     reverse(node.x_list.begin(), node.x_list.end());
     reverse(node.y_list.begin(), node.y_list.end());
     reverse(node.yaw_list.begin(), node.yaw_list.end());
+    reverse(node.delta_list.begin(), node.delta_list.end());
     reverse(node.dir_list_cont.begin(), node.dir_list_cont.end());
-    //    reverse(node.cont_cost_list.begin(), node.cont_cost_list.end());
     reverse(node.types.begin(), node.types.end());
     nid = node.parent_index;
 
     util::extend_vector(reversed_x, node.x_list);
     util::extend_vector(reversed_y, node.y_list);
     util::extend_vector(reversed_yaw, node.yaw_list);
+    util::extend_vector(reversed_delta, node.delta_list);
     util::extend_vector(reversed_direct_cont, node.dir_list_cont);
-    //    util::extend_vector(reversed_cost, node.cont_cost_list);
     util::extend_vector(reversed_types, node.types);
   }
 
   reverse(reversed_x.begin(), reversed_x.end());
   reverse(reversed_y.begin(), reversed_y.end());
   reverse(reversed_yaw.begin(), reversed_yaw.end());
+  reverse(reversed_delta.begin(), reversed_delta.end());
   reverse(reversed_direct_cont.begin(), reversed_direct_cont.end());
-  //  reverse(reversed_cost.begin(), reversed_cost.end());
   reverse(reversed_types.begin(), reversed_types.end());
 
   // adjust first direction
@@ -789,8 +768,8 @@ Path HybridAStar::getFinalPath(const NodeHybrid& final_node, const std::unordere
     idx_start_analytic = nb_elements - len_analytic + 1;
   }
 
-  return { reversed_x,      reversed_y,         reversed_yaw,  reversed_direct_cont,
-           final_node.cost, idx_start_analytic, reversed_types };
+  return { reversed_x,           reversed_y,      reversed_yaw,       reversed_delta,
+           reversed_direct_cont, final_node.cost, idx_start_analytic, reversed_types };
 }
 
 /**
@@ -801,11 +780,19 @@ Path HybridAStar::getFinalPath(const NodeHybrid& final_node, const std::unordere
  */
 double HybridAStar::getDistance2goal(const NodeHybrid& node, const std::unordered_map<size_t, NodeDisc>& h_dp)
 {
-  const size_t ind = AStar::calcIndex(node.x_index, node.y_index);
+  size_t ind = AStar::calcIndex(node.x_index, node.y_index);
   auto search = h_dp.find(ind);
   if (search == h_dp.end())
   {
-    return OUT_OF_HEURISTIC;
+    // index is not valid
+    ind = AStar::findValidNeighborIndex(ind, AStar::closed_set_guidance_);
+
+    if (ind == -1)
+    {
+      return OUT_OF_HEURISTIC;
+    }
+    const auto backup_search = h_dp.find(ind);
+    return backup_search->second.cost_dist_;
   }
   return search->second.cost_dist_;
 }
@@ -817,13 +804,7 @@ double HybridAStar::getDistance2goal(const NodeHybrid& node, const std::unordere
  */
 double HybridAStar::getDistance2GlobalGoal(const NodeHybrid& node)
 {
-  const size_t ind = AStar::calcIndex(node.x_index, node.y_index);
-  const auto search = AStar::closed_set_guidance_.find(ind);
-  if (search == AStar::closed_set_guidance_.end())
-  {
-    return OUT_OF_HEURISTIC;
-  }
-  return search->second.cost_dist_;
+  return getDistance2goal(node, AStar::closed_set_guidance_);
 }
 
 /**
@@ -848,9 +829,9 @@ std::optional<ReedsSheppStateSpace::ReedsSheppPath> HybridAStar::getRSExpansionP
   const Pose<double> goal_pose = { goal.x_list.back(), goal.y_list.back(), goal.yaw_list.back() };
 
   const ReedsSheppStateSpace::ReedsSheppPath path1 =
-      getReedSheppPath(start_pose, goal_pose, motion_res_min_, 1 / Vehicle::max_curvature_);
-  const ReedsSheppStateSpace::ReedsSheppPath path2 =
-      getReedSheppPath(start_pose, goal_pose, motion_res_min_, 1 / (Vehicle::max_curvature_ * second_rs_steer_factor_));
+      getReedSheppPath(start_pose, goal_pose, motion_res_min_, 1 / Vehicle::max_curvature_, Vehicle::w_b_);
+  const ReedsSheppStateSpace::ReedsSheppPath path2 = getReedSheppPath(
+      start_pose, goal_pose, motion_res_min_, 1 / (Vehicle::max_curvature_ * second_rs_steer_factor_), Vehicle::w_b_);
 
   const std::vector<ReedsSheppStateSpace::ReedsSheppPath> paths = { path1, path2 };
 
@@ -898,7 +879,6 @@ NodeHybrid HybridAStar::getFinalNodeFromPath(const NodeHybrid& current,
   // calc cost of analytic path
   const double f_cost = current.cost + analytic_path.cost;
   const size_t f_parent_index = calculateIndex(current.x_index, current.y_index, current.yaw_index);
-  const double f_steer = 0.0;
 
   // Set type of path segment
   size_t vec_size = analytic_path.x_list.size() - 1;
@@ -908,12 +888,12 @@ NodeHybrid HybridAStar::getFinalNodeFromPath(const NodeHybrid& current,
            current.y_index,
            current.yaw_index,
            current.discrete_direction,
-           std::vector<int>(analytic_path.directions.begin() + 1, analytic_path.directions.end()),
-           std::vector<double>(analytic_path.x_list.begin() + 1, analytic_path.x_list.end()),
-           std::vector<double>(analytic_path.y_list.begin() + 1, analytic_path.y_list.end()),
-           std::vector<double>(analytic_path.yaw_list.begin() + 1, analytic_path.yaw_list.end()),
+           { analytic_path.directions.begin() + 1, analytic_path.directions.end() },
+           { analytic_path.x_list.begin() + 1, analytic_path.x_list.end() },
+           { analytic_path.y_list.begin() + 1, analytic_path.y_list.end() },
+           { analytic_path.yaw_list.begin() + 1, analytic_path.yaw_list.end() },
+           { analytic_path.delta_list.begin() + 1, analytic_path.delta_list.end() },
            types,
-           f_steer,
            static_cast<int64_t>(f_parent_index),
            f_cost,
            static_cast<double>(vec_size) * res };
@@ -932,12 +912,6 @@ std::optional<NodeHybrid> HybridAStar::getRSExpansion(const NodeHybrid& current,
     return getFinalNodeFromPath(current, *analytic_path, PATH_TYPE::REEDS_SHEPP, motion_res_min_);
   }
   return {};
-}
-
-double HybridAStar::getDrivenAngleDiff(double angle1, double angle2, char direction)
-{
-  int sign = (direction == 'L') ? 1 : -1;
-  return util::getAngleDiff(angle1, angle2) * sign;
 }
 
 void HybridAStar::recalculateLength(ReedsSheppStateSpace::ReedsSheppPath& path)
@@ -970,7 +944,7 @@ void HybridAStar::calculateNonhnoobs()
   non_h_no_obs_.setName("non_h_no_obs");
   non_h_no_obs_calculated_ = true;
 
-  std::string filename = "/nonh_noobs.data";
+  const std::string filename = "/nonh_noobs.data";
   //  LOG_DEB("Trying to find data in " << path2data_ + filename);
   if (std::filesystem::exists(path2data_ + filename))
   {
@@ -988,9 +962,9 @@ void HybridAStar::calculateNonhnoobs()
   //  LOG_DEB("Calculating non-holonomic no obstacle heuristic");
   const int goal_x = std::floor(non_h_no_obs_patch_dim_ / 2);
   const int goal_y = goal_x;
-  const double goal_yaw = 0.0;
+  constexpr double goal_yaw = 0.0;
 
-  double max_radius = 1 / Vehicle::max_curvature_;
+  const double max_radius = 1 / Vehicle::max_curvature_;
 
   for (int angle_idx = 0, angle = -180; angle < 180; angle += astar_yaw_res_deg_, ++angle_idx)
   {
@@ -998,7 +972,7 @@ void HybridAStar::calculateNonhnoobs()
     {
       for (int y_ind = 0; y_ind < non_h_no_obs_patch_dim_; ++y_ind)
       {
-        double angle_rad = util::TO_RAD * angle;
+        const double angle_rad = util::TO_RAD * angle;
 
         // if goal is equal start set length to zero and continue
         if ((x_ind == goal_x) && (y_ind == goal_y) && (angle_rad == goal_yaw))
@@ -1016,7 +990,8 @@ void HybridAStar::calculateNonhnoobs()
                                     goal_yaw };
 
         // do Reeds Shepp planning
-        ReedsSheppStateSpace::ReedsSheppPath path = getReedSheppPath(start, goal, motion_res_min_, max_radius);
+        ReedsSheppStateSpace::ReedsSheppPath path =
+            getReedSheppPath(start, goal, motion_res_min_, max_radius, Vehicle::w_b_);
         non_h_no_obs_(angle_idx, y_ind, x_ind) = path.totalLength_;
       }
     }
@@ -1027,26 +1002,6 @@ void HybridAStar::calculateNonhnoobs()
   output_file.write(reinterpret_cast<char*>(non_h_no_obs_.data_ref().data()),
                     non_h_no_obs_.data_ref().size() * sizeof(double));
   output_file.close();
-}
-
-std::vector<double> HybridAStar::angleArange(double angle1, double angle2, char direction, double angle_res)
-{
-  const double yaw_diff = getDrivenAngleDiff(angle1, angle2, direction);
-  const double step = util::sgn(yaw_diff) * angle_res;
-  const int nb_steps = ceil(abs(yaw_diff) / angle_res);
-
-  std::vector<double> angles(nb_steps, 0);
-  // set first angle
-  double angle = angle1;
-  for (int i = 0; i < nb_steps; ++i)
-  {
-    angle += step;
-    angle = util::constrainAngleMinPIPlusPi(angle);
-    angles[i] = angle;
-  }
-  // verify last angle
-  angles.back() = angle2;
-  return angles;
 }
 
 double HybridAStar::det(const Point<double>& vec1, const Point<double>& vec2)
@@ -1114,24 +1069,27 @@ bool HybridAStar::lineIntersection(const Line2D<double>& line1,
   return false;
 }
 
+/**
+ *  Try to intersect two lines. If they do, this is the turning point
+ * @param current_node
+ * @param goal_node
+ * @return
+ */
 std::optional<NodeHybrid> HybridAStar::getRearAxisPath(const NodeHybrid& current_node, const NodeHybrid& goal_node)
 {
-  /**
-   * Try to intersect two lines. If they do, this is the turning point
-   */
   const Pose<double> start = { current_node.x_list.back(), current_node.y_list.back(), current_node.yaw_list.back() };
   const Pose<double> goal = { goal_node.x_list.back(), goal_node.y_list.back(), goal_node.yaw_list.back() };
 
   const double turn_s = turn_on_point_horizon_;
 
   // line 1
-  Point<double> pointA = { start.x - turn_s * cos(start.yaw), start.y - turn_s * sin(start.yaw) };
-  Point<double> pointB = { start.x + turn_s * cos(start.yaw), start.y + turn_s * sin(start.yaw) };
+  const Point<double> pointA = { start.x - turn_s * cos(start.yaw), start.y - turn_s * sin(start.yaw) };
+  const Point<double> pointB = { start.x + turn_s * cos(start.yaw), start.y + turn_s * sin(start.yaw) };
   const Line2D<double> line1 = { pointA, pointB };
 
   // line 2
-  Point<double> pointC = { goal.x - turn_s * cos(goal.yaw), goal.y - turn_s * sin(goal.yaw) };
-  Point<double> pointD = { goal.x + turn_s * cos(goal.yaw), goal.y + turn_s * sin(goal.yaw) };
+  const Point<double> pointC = { goal.x - turn_s * cos(goal.yaw), goal.y - turn_s * sin(goal.yaw) };
+  const Point<double> pointD = { goal.x + turn_s * cos(goal.yaw), goal.y + turn_s * sin(goal.yaw) };
   const Line2D<double> line2 = { pointC, pointD };
 
   Point<double> intersect_points = { 0, 0 };
@@ -1139,8 +1097,8 @@ std::optional<NodeHybrid> HybridAStar::getRearAxisPath(const NodeHybrid& current
   if (lineIntersection(line1, line2, start, goal, turn_s, intersect_points, s2intersect))
   {
     // Get coordinate where lines intersect
-    double s_1 = s2intersect.x;
-    double s_2 = s2intersect.y;
+    const double s_1 = s2intersect.x;
+    const double s_2 = s2intersect.y;
     double ds1 = (s_1 >= 0) ? interp_res_ : -interp_res_;
     size_t nb_el_1 = ceil(s_1 / ds1);
     ds1 = s_1 / static_cast<double>(nb_el_1 - 1);
@@ -1149,18 +1107,20 @@ std::optional<NodeHybrid> HybridAStar::getRearAxisPath(const NodeHybrid& current
     ds2 = s_2 / static_cast<double>(nb_el_2 - 1);
 
     // Get angles of turning point
-    double diff = util::getSignedAngleDiff(goal.yaw, start.yaw);
-    char turn_direction = (diff > 0) ? 'L' : 'R';
-    const std::vector<double> yaw_fill = angleArange(start.yaw, goal.yaw, turn_direction, yaw_res_coll_ * util::TO_RAD);
-    size_t nb_fill = yaw_fill.size();
-    size_t total_size = nb_el_1 + nb_fill + nb_el_2;
+    const double diff = util::getAngleDiff(start.yaw, goal.yaw);
+    const char turn_direction = (diff > 0) ? 'L' : 'R';
+    const std::vector<double> yaw_fill =
+        util::angleArange(start.yaw, goal.yaw, turn_direction, yaw_res_coll_ * util::TO_RAD);
+    const size_t nb_fill = yaw_fill.size();
+    const size_t total_size = nb_el_1 + nb_fill + nb_el_2;
     std::vector<double> x_list(total_size, 0);
     std::vector<double> y_list(total_size, 0);
     std::vector<double> yaw_list(total_size, 0);
+    std::vector<double> delta_list(total_size, 0);
     std::vector<int> dir_list(total_size, 2 * static_cast<int>((ds1 > 0)) - 1);
-    size_t idx_first = 0;
-    size_t idx_fill = nb_el_1;
-    size_t idx_second = nb_el_1 + nb_fill;
+    const size_t idx_first = 0;
+    const size_t idx_fill = nb_el_1;
+    const size_t idx_second = nb_el_1 + nb_fill;
 
     // interpolate and insert second part
     // set first elements
@@ -1171,11 +1131,12 @@ std::optional<NodeHybrid> HybridAStar::getRearAxisPath(const NodeHybrid& current
       x_list[i] = start.x + s_val * cos(start.yaw);
       y_list[i] = start.y + s_val * sin(start.yaw);
       yaw_list[i] = start.yaw;
+      delta_list[i] = 0.0;
       dir_list[i] = direction;
       s_val += ds1;
     }
-    double last_x = x_list[idx_fill - 1];
-    double last_y = y_list[idx_fill - 1];
+    const double last_x = x_list[idx_fill - 1];
+    const double last_y = y_list[idx_fill - 1];
 
     // interpolate angle
     for (size_t i = idx_fill; i < idx_second; ++i)
@@ -1184,6 +1145,15 @@ std::optional<NodeHybrid> HybridAStar::getRearAxisPath(const NodeHybrid& current
       y_list[i] = last_y;
       yaw_list[i] = yaw_fill[i - idx_fill];
       dir_list[i] = direction;
+
+      if (turn_direction == 'L')
+      {
+        delta_list[i] = util::PI / 2;
+      }
+      else
+      {
+        delta_list[i] = -util::PI / 2;
+      }
     }
 
     // interpolate and insert first part
@@ -1195,16 +1165,19 @@ std::optional<NodeHybrid> HybridAStar::getRearAxisPath(const NodeHybrid& current
       x_list[i] = goal.x + s_val * cos(goal.yaw);
       y_list[i] = goal.y + s_val * sin(goal.yaw);
       yaw_list[i] = goal.yaw;
+      delta_list[i] = 0.0;
       dir_list[i] = direction;
       s_val += ds2;
     }
 
     if (CollisionChecker::checkPathCollision(x_list, y_list, yaw_list))
     {
+      // TODO (Schumann) create constructor for this
       ReedsSheppStateSpace::ReedsSheppPath path;
       path.x_list = std::move(x_list);
       path.y_list = std::move(y_list);
       path.yaw_list = std::move(yaw_list);
+      path.delta_list = std::move(delta_list);
       path.directions = std::move(dir_list);
       path.ctypes = { 'S', turn_direction, 'S' };
       path.lengths = { s_1, 0, s_2 };
@@ -1235,54 +1208,29 @@ NodeHybrid HybridAStar::createNode(const Pose<double>& pose, double steer)
            { pose.x },
            { pose.y },
            { pose.yaw },
+           { steer },
            { PATH_TYPE::HASTAR },
-           steer,
            -1,
            0,
            0 };
 }
 
 /**
- * Recalculate the complete planning env
+ * Recalculate the complete planning env.
+ * The distance heuristic is calculated from the goal to the current ego position to allow the discrete A* path to be
+ * used as a navigation help. Inside the planning alg. the heuristic is calculated explicitly from the planned pose
  * @param goal_node
  * @param ego_node
  */
 void HybridAStar::recalculateEnv(const NodeHybrid& goal_node, const NodeHybrid& ego_node)
 {
-  //  auto start = std::chrono::high_resolution_clock::now();
-
-  //  AStar::calcAstarGrid();
   AStar::calcAstarGridCuda();
-
-  //  auto after_grid = std::chrono::high_resolution_clock::now();
 
   const Point<int> ego_index = { ego_node.x_index, ego_node.y_index };
 
   AStar::calcVoronoiPotentialField(ego_index);
 
-  //  auto after_voronoi = std::chrono::high_resolution_clock::now()
-
-  // try out opencv voronoi distance
-  //  cv::Mat dist;
-  //  const int mask_size = 3;
-  ////  cv::distanceTransform(AStar::astar_grid_.data(), AStar::h_prox_arr_.data(), cv::DIST_L2, mask_size,
-  /// cv::DIST_LABEL_PIXEL);  // cv::DIST_LABEL_CCOMP
-  //  cv::distanceTransform(AStar::astar_grid_.data(), dist, cv::DIST_L2, mask_size, cv::DIST_LABEL_PIXEL);  //
-  //  cv::DIST_LABEL_CCOMP
-  ////  AStar::h_prox_arr_.vec = dist.data;
-  //  cv::imshow("test", dist);
-
   AStar::calcDistanceHeuristic({ goal_node.x_index, goal_node.y_index }, { ego_node.x_index, ego_node.y_index }, false);
-
-  //  auto end = std::chrono::high_resolution_clock::now();
-
-  //  auto astar_grid_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_grid - start);
-  //  auto voronoi_time = std::chrono::duration_cast<std::chrono::milliseconds>(after_voronoi - after_grid);
-  //  auto distance_heur_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - after_voronoi);
-  //  auto env_time = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-  //  LOG_INF("Astar grid took: " << astar_grid_time.count() << "ms");
-  //  LOG_INF("voronoi took: " << voronoi_time.count() << "ms");
-  //  LOG_INF("distance heur took: " << distance_heur_time.count() << "ms");
 }
 
 void HybridAStar::resetLaneGraph()
@@ -1297,49 +1245,6 @@ void HybridAStar::updateLaneGraph(const Point<double>& origin_utm, double patch_
   AStar::resetMovementMap();
 
   AStar::setMovementMap(lane_graph_.edges_);
-}
-
-void HybridAStar::smoothPositions(std::vector<Point<double>>& positions)
-{
-  size_t nb_elements = positions.size();
-  std::vector<double> s_list;
-  std::vector<double> x_list;
-  std::vector<double> y_list;
-  s_list.reserve(nb_elements);
-  x_list.reserve(nb_elements);
-  y_list.reserve(nb_elements);
-
-  double s_dist = 0.0;
-  int idx = 0;
-  // TODO (Schumann) replace with enumerate from c++23
-  for (const auto& [x, y] : positions)
-  {
-    if (idx > 0)
-    {
-      const double x_diff = x - x_list.back();
-      const double y_diff = y - y_list.back();
-      const double dist = x_diff * x_diff + y_diff * y_diff;
-      s_dist += dist;
-    }
-    s_list.push_back(s_dist);
-    x_list.push_back(x);
-    y_list.push_back(y);
-
-    idx++;
-  }
-
-  int degree = 2;
-  double smoothing = 0.5;
-  auto spline_x = fitpack_wrapper::BSpline1D(s_list, x_list, degree, smoothing);
-  auto spline_y = fitpack_wrapper::BSpline1D(s_list, y_list, degree, smoothing);
-
-  // insert elements into positions
-  idx = 0;
-  for (const auto& s_val : s_list)
-  {
-    positions[idx] = { spline_x(s_val), spline_y(s_val) };
-    idx++;
-  }
 }
 
 void HybridAStar::smoothLaneNodes(std::vector<LaneNode>& nodes)
@@ -1373,8 +1278,8 @@ void HybridAStar::smoothLaneNodes(std::vector<LaneNode>& nodes)
     idx++;
   }
 
-  int degree = 2;
-  double smoothing = 1.0;
+  int constexpr degree = 3;
+  int constexpr smoothing = 1.0;
   auto spline_x = fitpack_wrapper::BSpline1D(s_list, x_list, degree, smoothing);
   auto spline_y = fitpack_wrapper::BSpline1D(s_list, y_list, degree, smoothing);
 
@@ -1430,13 +1335,13 @@ void HybridAStar::interpolateLaneNodes(std::vector<LaneNode>& nodes)
   }
 
   // very rudimentary interpolation, distance is approximately right
-  int degree = 2;
-  double smoothing = 1.0;
+  int constexpr degree = 3;
+  int constexpr smoothing = 1.0;
   auto spline_x = fitpack_wrapper::BSpline1D(s_list, x_list, degree, smoothing);
   auto spline_y = fitpack_wrapper::BSpline1D(s_list, y_list, degree, smoothing);
 
   // insert interpolated elements
-  int nb_els = static_cast<int>(s_list.back() / motion_res_max_);
+  const int nb_els = static_cast<int>(s_list.back() / motion_res_max_);
   nodes.clear();
   nodes.reserve(nb_els);
 
@@ -1451,7 +1356,6 @@ void HybridAStar::interpolateLaneNodes(std::vector<LaneNode>& nodes)
 std::optional<NodeHybrid> HybridAStar::hAstarCore(const NodeHybrid& ego_node,
                                                   const NodeHybrid& start_node,
                                                   const NodeHybrid& goal_node,
-                                                  bool to_final_pose,
                                                   bool do_analytic)
 {
   open_set_.clear();
@@ -1459,50 +1363,43 @@ std::optional<NodeHybrid> HybridAStar::hAstarCore(const NodeHybrid& ego_node,
   connected_closed_nodes_.first.clear();   // reset for correct vis
   connected_closed_nodes_.second.clear();  // reset for correct vis
 
-  std::unordered_map<size_t, NodeDisc>* dist_heuristic;
+  //  std::unordered_map<size_t, NodeDisc>* dist_heuristic;
 
-  // choose between waypoint types
-  double start_heur_cost = getDistance2GlobalGoal(ego_node);
-  if (waypoint_type_ == HEUR_RED or waypoint_type_ == NONE)
-  {
-    dist_heuristic = &AStar::closed_set_guidance_;
-  }
-  else
-  {
-    bool for_path = true;
-    AStar::calcDistanceHeuristic(
-        { goal_node.x_index, goal_node.y_index }, { start_node.x_index, start_node.y_index }, for_path);
-    dist_heuristic = &AStar::closed_set_path_;
-  }
+  // Calc distance heuristic prior to path calculation
+  AStar::calcDistanceHeuristic(
+      { goal_node.x_index, goal_node.y_index }, { start_node.x_index, start_node.y_index }, true);
+  //  dist_heuristic = &AStar::closed_set_path_;
+
+  // Get distance from ego position
+  const double start_heur_cost = getDistance2goal(ego_node, AStar::closed_set_guidance_);
 
   // Add start node to frontier to explore from
-  size_t start_index = calculateIndex(start_node.x_index, start_node.y_index, start_node.yaw_index);
-  open_queue_.put(start_index, calcCost(start_node, goal_node, *dist_heuristic));
+  const size_t start_index = calculateIndex(start_node.x_index, start_node.y_index, start_node.yaw_index);
+  open_queue_.put(start_index, calcCost(start_node, goal_node, AStar::closed_set_path_));
   open_set_.insert({ start_index, start_node });
 
   size_t curr_open_idx;
-  size_t last_closed_node_index = 0;
   std::vector<NodeHybrid> final_nodes;
-  //  size_t nb_nodes = 0;
   size_t nb_nodes_since_final = 0;
 
-  auto t_1 = std::chrono::high_resolution_clock::now();
-  std::chrono::duration<double, std::milli> timeout = std::chrono::milliseconds(timeout_ms_);
+  const auto t_1 = std::chrono::high_resolution_clock::now();
+  const std::chrono::duration<double, std::milli> timeout = std::chrono::milliseconds(timeout_ms_);
   while (true)
   {
     // open set is empty
     if (open_queue_.empty())
     {
       //      LOG_ERR("Cannot find path, No open set");
-
-      return closed_set_.at(last_closed_node_index);
+      std::cout << "Cannot find path, no open set" << std::endl;
+      return {};
     }
     // Execution took too long
-    auto t_2 = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> ms_double = t_2 - t_1;
+    const auto t_2 = std::chrono::high_resolution_clock::now();
+    const std::chrono::duration<double, std::milli> ms_double = t_2 - t_1;
     if (ms_double > timeout)
     {
       //      LOG_ERR("Execution took too long, no path was found");
+      std::cout << "Execution took too long, no path was found" << std::endl;
       return {};
     }
 
@@ -1514,17 +1411,16 @@ std::optional<NodeHybrid> HybridAStar::hAstarCore(const NodeHybrid& ego_node,
     if (search_current != open_set_.end())
     {
       const NodeHybrid current_node = search_current->second;
-      last_closed_node_index = curr_open_idx;
       closed_set_.insert({ curr_open_idx, current_node });
       open_set_.erase(curr_open_idx);
 
       if (do_analytic)
       {
         /// Heuristic reduction
-        if (waypoint_type_ == HEUR_RED and not to_final_pose)
+        const double current_heur_cost = getDistance2goal(current_node, AStar::closed_set_path_);
+        if (waypoint_type_ == HEUR_RED and start_heur_cost > max_dist4waypoints_)
         {
           // Early stopping based on heuristic decrease
-          const double current_heur_cost = getDistance2GlobalGoal(current_node);
           const double heur_diff = start_heur_cost - current_heur_cost;
           if (heur_diff > waypoint_dist_)
           {
@@ -1533,7 +1429,7 @@ std::optional<NodeHybrid> HybridAStar::hAstarCore(const NodeHybrid& ego_node,
         }
 
         /// Try to reach final goal with extensions
-        if (check4Expansions(current_node, *dist_heuristic))
+        if (check4Expansions(current_node, AStar::closed_set_path_))
         {
           // A valid final path was found by RS curves
           if (const auto final_rs_node = getRSExpansion(current_node, goal_node))
@@ -1571,13 +1467,13 @@ std::optional<NodeHybrid> HybridAStar::hAstarCore(const NodeHybrid& ego_node,
       else
       {
         /// Waypoint path
-        double node_angle = util::constrainAngleZero2Pi(current_node.yaw_list.back());
-        double goal_angle = util::constrainAngleZero2Pi(goal_node.yaw_list.front());
+        const double node_angle = current_node.yaw_list.back();
+        const double goal_angle = goal_node.yaw_list.front();
 
         // If no analytic solution is necessary, waypoints must be reached only approximately
         const double dist2 = pow((current_node.x_list.back() - goal_node.x_list.front()), 2) +
                              pow((current_node.y_list.back() - goal_node.y_list.front()), 2);
-        if (dist2 < approx_goal_dist2_ && anglesApproxEqual02Pi(goal_angle, node_angle))
+        if (dist2 < approx_goal_dist2_ && util::areAnglesEqual(goal_angle, node_angle, approx_goal_angle_rad_))
         {
           return current_node;
         }
@@ -1608,7 +1504,7 @@ std::optional<NodeHybrid> HybridAStar::hAstarCore(const NodeHybrid& ego_node,
           if (found_node.cost > neighbor.cost)
           {
             // Add to cost
-            const double node_cost = calcCost(neighbor, goal_node, *dist_heuristic);
+            const double node_cost = calcCost(neighbor, goal_node, AStar::closed_set_path_);
 
             open_queue_.put(next_idx, node_cost);
             open_set_.erase(next_idx);
@@ -1619,7 +1515,7 @@ std::optional<NodeHybrid> HybridAStar::hAstarCore(const NodeHybrid& ego_node,
         else
         {
           // Add to cost
-          const double node_cost = calcCost(neighbor, goal_node, *dist_heuristic);
+          const double node_cost = calcCost(neighbor, goal_node, AStar::closed_set_path_);
 
           // Check if node is out of heuristic, if yes don't add it to open list
           if (node_cost == OUT_OF_HEURISTIC)
@@ -1644,38 +1540,41 @@ std::optional<NodeHybrid> HybridAStar::hAstarCore(const NodeHybrid& ego_node,
 std::optional<Path> HybridAStar::hybridAStarPlanning(const NodeHybrid& ego_node,
                                                      const NodeHybrid& start_node,
                                                      const NodeHybrid& goal_node,
-                                                     bool to_final_pose,
-                                                     bool do_analytic)
+                                                     bool do_analytic,
+                                                     double speed)
 {
-  //  auto start_time = std::chrono::high_resolution_clock::now();
-
-  if (const auto final_node = hAstarCore(ego_node, start_node, goal_node, to_final_pose, do_analytic))
+  if (const auto final_node = hAstarCore(ego_node, start_node, goal_node, do_analytic))
   {
     Path path = getFinalPath(*final_node, closed_set_);
 
-    //    auto hybrid_astar_time = std::chrono::high_resolution_clock::now();
-
     // Smooth path with gradient descent
-    Smoother::smooth_path(path);
+    //    Smoother::smooth_path(path);
 
     // interpolate path with B-Splines
     interpolatePath(path, interp_res_);
 
-    //    std::chrono::duration<double> hastar_core_duration = hybrid_astar_time - start_time;
-    //    LOG_INF("hastar_core took: " << hastar_core_duration.count() << "s_val");
+    // create nodes for vis
+    calcConnectedClosedNodes();
 
     return path;
   }
 
-  return {};
+  // TODO (Schumann) create emergency path if no path is found!
+  return getEmergencyPath(start_node, speed);
 }
 
+/**
+ * Find a valid pose next to the original goal to plan to
+ * @param ego_pose
+ * @param goal_pose
+ * @return
+ */
 std::optional<Pose<double>> HybridAStar::getValidClosePose(const Pose<double>& ego_pose, const Pose<double>& goal_pose)
 {
   // 1. do forward sweep to goal
-  double steer = 0;
-  NodeHybrid goal_node = createNode(goal_pose, steer);
-  NodeHybrid ego_node = createNode(ego_pose, steer);
+  const double steer = 0;
+  const NodeHybrid goal_node = createNode(goal_pose, steer);
+  const NodeHybrid ego_node = createNode(ego_pose, steer);
 
   bool for_path = false;
   bool get_only_near = true;
@@ -1700,12 +1599,18 @@ std::optional<Pose<double>> HybridAStar::getValidClosePose(const Pose<double>& e
                                      closest_node.pos.y * grid_tf::star2con_,
                                      goal_node.yaw_list[0] };
 
-  const double dxy_max = 2.0;
+  const double angle_weight = 20.0;
+  const double dist_weight = 1.0;
+  const double prox_weight = 1.0;
+
+  const double dxy_max = 5.0;
   const double dphi_max = util::PI;
 
-  double phi_res = yaw_res_coll_ * util::TO_RAD;
+  const double phi_res = yaw_res_coll_ * util::TO_RAD;
 
-  Pose<double> free_goal_pose;
+  // default to ego pose
+  Pose<double> free_goal_pose = ego_pose;
+
   double min_cost = std::numeric_limits<double>::max();
 
   const int dxy_max_idx = static_cast<int>(std::floor(dxy_max) / gm_res_);
@@ -1725,10 +1630,11 @@ std::optional<Pose<double>> HybridAStar::getValidClosePose(const Pose<double>& e
         const double dist2 = x_diff * x_diff + y_diff * y_diff;
 
         const Pose<double> pose = { center_pose.x + x_diff, center_pose.y + y_diff, center_pose.yaw + phi_diff };
+
         const double prox_cost = getProxOfCorners(grid_tf::utm2astar(pose));
 
         // naive cost function
-        const double cost = dist2 + phi_diff * 0.1 + prox_cost * 5.0;
+        const double cost = dist2 * dist_weight + std::abs(phi_diff) * angle_weight + prox_cost * prox_weight;
 
         if (cost > min_cost)
         {
@@ -1766,71 +1672,158 @@ std::optional<Pose<double>> HybridAStar::getValidClosePose(const Pose<double>& e
   return free_goal_pose;
 }
 
-std::pair<double, double> HybridAStar::getMaxMeanProximityVec(const std::vector<double>& x_list,
-                                                              const std::vector<double>& y_list)
+/**
+ * Create coordinates of closed nodes if they were just calculated
+ * @return
+ */
+void HybridAStar::calcConnectedClosedNodes()
 {
-  double max_proximity = 0.0;
-  double mean_proximity = 0.0;
-  size_t nb_elements = x_list.size();
-  for (size_t i = 0; i < nb_elements; i++)
+  // reconnect all nodes with the last coordinate of their parent
+  connected_closed_nodes_.first.resize(closed_set_.size() * 2);
+  connected_closed_nodes_.second.resize(closed_set_.size() * 2);
+  size_t index = 0;
+  for (auto& node_pair : closed_set_)
   {
-    const double prox =
-        util::getBilinInterp(x_list.at(i) * grid_tf::con2star_, y_list.at(i) * grid_tf::con2star_, AStar::h_prox_arr_);
-    if (prox > max_proximity)
+    const NodeHybrid node = node_pair.second;
+    if (node.parent_index != -1)
     {
-      max_proximity = prox;
-      mean_proximity += prox;
+      const NodeHybrid parent_node = closed_set_.at(node.parent_index);
+
+      // Add to list for vis
+      connected_closed_nodes_.first.at(2 * index) = grid_tf::patch_utm2utm_x(parent_node.x_list.back());
+      connected_closed_nodes_.first.at(2 * index + 1) = grid_tf::patch_utm2utm_x(node.x_list.back());
+      connected_closed_nodes_.second.at(2 * index) = grid_tf::patch_utm2utm_y(parent_node.y_list.back());
+      connected_closed_nodes_.second.at(2 * index + 1) = grid_tf::patch_utm2utm_y(node.y_list.back());
+      index++;
     }
   }
-  mean_proximity /= static_cast<double>(nb_elements);
-
-  return { max_proximity, mean_proximity };
 }
 
-std::pair<double, double> HybridAStar::getMaxMeanProximity(const Path& path)
+/**
+ *  Do a graph expansion for as many iterations as necessary to the current maximal acceleration
+ * @param start_node
+ * @param ego_v
+ * @return
+ */
+Path HybridAStar::getEmergencyPath(const NodeHybrid& start_node, double ego_v)
 {
-  return getMaxMeanProximityVec(path.x_list, path.y_list);
-}
+  std::unordered_map<size_t, NodeHybrid> closed_set;
+  std::unordered_map<size_t, NodeHybrid> open_set;
+  PriorityQueue<size_t, double> open_queue;
 
-std::unordered_map<size_t, NodeHybrid> HybridAStar::getClosedSet()
-{
-  return closed_set_;
-}
-
-std::pair<std::vector<double>, std::vector<double>> HybridAStar::getConnectedClosedNodes()
-{
-  // recreate vector if necessary
-  if (!closed_set_.empty() and connected_closed_nodes_.first.empty())
+  constexpr double v_eps = 0.1;
+  if (ego_v < v_eps)
   {
-    // reconnect all nodes with the last coordinate of their parent
-    connected_closed_nodes_.first.resize(closed_set_.size() * 2);
-    connected_closed_nodes_.second.resize(closed_set_.size() * 2);
-    size_t index = 0;
-    for (auto node_pair : closed_set_)
-    {
-      NodeHybrid node = node_pair.second;
-      if (node.parent_index != -1)
-      {
-        NodeHybrid parent_node = closed_set_.at(node.parent_index);
+    return Path({ start_node.x_list.back() },
+                { start_node.y_list.back() },
+                { start_node.yaw_list.back() },
+                { start_node.delta_list.back() },
+                { start_node.dir_list_cont.back() },
+                start_node.cost,
+                -1,
+                { start_node.types.back() });
+  }
+  const int direction = (ego_v >= 0) ? 1 : -1;
+  const double motion_res = interp_res_;
+  const double comfort_arc_l = std::max(pow(ego_v, 2) / (2 * comfort_brake_acc_), motion_res);
 
-        // Add to list for vis
-        connected_closed_nodes_.first.at(2 * index) = parent_node.x_list.back();
-        connected_closed_nodes_.first.at(2 * index + 1) = node.x_list.back();
-        connected_closed_nodes_.second.at(2 * index) = parent_node.y_list.back();
-        connected_closed_nodes_.second.at(2 * index + 1) = node.y_list.back();
-        index++;
+  // Add start to open set
+  const size_t start_idx = calculateIndex(start_node.x_index, start_node.y_index, start_node.yaw_index);
+  open_set.insert({ start_idx, start_node });
+  open_queue.put(start_idx, start_node.cost);
+
+  const auto t_1 = std::chrono::high_resolution_clock::now();
+  const std::chrono::duration<double, std::milli> timeout = std::chrono::milliseconds(100);
+
+  // Do a graph expansion
+  NodeHybrid final_node;
+  while (true)
+  {
+    if (open_queue.empty())
+    {
+      //            LOG_ERR("Cannot find emergency path, No open set");
+      std::cout << "Cannot find emergency path, No open set. The best I can do is returning the current node as path. "
+                   "Good luck"
+                << std::endl;
+      return Path({ start_node.x_list.back() },
+                  { start_node.y_list.back() },
+                  { start_node.yaw_list.back() },
+                  { start_node.delta_list.back() },
+                  { start_node.dir_list_cont.back() },
+                  start_node.cost,
+                  -1,
+                  { start_node.types.back() });
+    }
+
+    // Get node with the lowest costs of open list to be investigated
+    const size_t curr_open_idx = open_queue.get();
+
+    // Node is not yet explored --> move to explored ones
+    const auto search_current = open_set.find(curr_open_idx);
+    if (search_current != open_set.end())
+    {
+      const NodeHybrid current_node = search_current->second;
+      closed_set.insert({ curr_open_idx, current_node });
+      open_set.erase(curr_open_idx);
+
+      // Execution took too long
+      const auto t_2 = std::chrono::high_resolution_clock::now();
+      const std::chrono::duration<double, std::milli> ms_double = t_2 - t_1;
+
+      // timeout or comfort arc length reached
+      if (ms_double > timeout or current_node.dist > comfort_arc_l)
+
+      //      if (current_node.dist > min_arc_l)
+      {
+        std::cout << "Emergency path found. remaining s = " << current_node.dist << std::endl;
+        return getFinalPath(current_node, closed_set);
+      }
+
+      // Explore
+      for (const double steer : steering_inputs_)
+      {
+        if (const auto next_node = calcNextNode(current_node, steer, direction, motion_res, arc_l_))
+        {
+          if (verifyIndex(next_node->x_index, next_node->y_index))
+          {
+            const size_t next_idx = calculateIndex(next_node->x_index, next_node->y_index, next_node->yaw_index);
+            // Node was already visited
+            if (closed_set.find(next_idx) != closed_set.end())
+            {
+              // The update of a closed node cannot be implemented because it would cause steps in the path
+              continue;
+            }
+
+            // Node is not in open list and hence unknown, add it to open list!
+            const auto search = open_set.find(next_idx);
+            if (search == open_set.end())
+            {
+              open_queue.put(next_idx, next_node->cost);
+              open_set.insert({ next_idx, *next_node });
+
+              // Node is already in open list
+            }
+            else
+            {
+              const NodeHybrid found_node = search->second;
+              if (found_node.cost > next_node->cost)
+              {
+                open_queue.put(next_idx, next_node->cost);
+                open_set.erase(next_idx);
+                open_set.emplace(next_idx, *next_node);
+              }
+            }
+          }
+        }
       }
     }
-    return connected_closed_nodes_;
+    else
+    {
+      // Node from heap is not in open list, This happens by updating the nodes in the open list!
+      // Ignore it, it was already processed
+      continue;
+    }
   }
-
-  std::pair<std::vector<double>, std::vector<double>> empty_vec;
-  return empty_vec;
-}
-
-std::unordered_map<size_t, NodeHybrid> HybridAStar::getOpenSet()
-{
-  return open_set_;
 }
 
 std::tuple<Pose<double>, int, double> HybridAStar::projEgoOnPath(const Pose<double>& pose,
@@ -1838,8 +1831,7 @@ std::tuple<Pose<double>, int, double> HybridAStar::projEgoOnPath(const Pose<doub
                                                                  int ego_idx)
 {
   const int max_horizon = 60;
-
-  int nb_elements = static_cast<int>(path.x_list.size());
+  const int nb_elements = static_cast<int>(path.x_list.size());
 
   // nb of elements ahead is zero
   if (nb_elements - ego_idx <= 0)
@@ -1860,7 +1852,7 @@ std::tuple<Pose<double>, int, double> HybridAStar::projEgoOnPath(const Pose<doub
     double dist2 = x_diff * x_diff + y_diff * y_diff;
     double dist_yaw = util::getAngleDiff(path.yaw_list[i], pose.yaw);
 
-    double dist_metric = dist2 + dist_yaw * 0.0001;
+    double dist_metric = dist2 + std::abs(dist_yaw) * 0.0001;
 
     if (dist_metric < min_dist_metric)
     {
@@ -1870,9 +1862,9 @@ std::tuple<Pose<double>, int, double> HybridAStar::projEgoOnPath(const Pose<doub
   }
 
   // get pose
-  Pose<double> proj_pose(path.x_list[proj_idx], path.y_list[proj_idx], path.yaw_list[proj_idx]);
+  const Pose<double> proj_pose(path.x_list[proj_idx], path.y_list[proj_idx], path.yaw_list[proj_idx]);
 
-  return { pose, proj_idx, min_dist_metric };
+  return { proj_pose, proj_idx, min_dist_metric };
 }
 
 void HybridAStar::interpolatePathSegment(Path& path_segment, const Segment& segment_info, double interp_res)
@@ -1891,12 +1883,18 @@ void HybridAStar::interpolatePathSegment(Path& path_segment, const Segment& segm
   path_x_filt.reserve(path_length);
   std::vector<double> path_y_filt;
   path_y_filt.reserve(path_length);
+  std::vector<double> path_yaw_filt;
+  path_yaw_filt.reserve(path_length);
+  std::vector<double> path_delta_filt;
+  path_delta_filt.reserve(path_length);
   std::vector<PATH_TYPE> path_types_filt;
   path_types_filt.reserve(path_length);
 
   // Insert first element
   path_x_filt.push_back(path_segment.x_list.front());
   path_y_filt.push_back(path_segment.y_list.front());
+  path_yaw_filt.push_back(path_segment.yaw_list.front());
+  path_delta_filt.push_back(path_segment.delta_list.front());
   path_types_filt.push_back(path_segment.types.front());
 
   double cum_dist = 0;
@@ -1918,121 +1916,62 @@ void HybridAStar::interpolatePathSegment(Path& path_segment, const Segment& segm
     // add coordinates
     path_x_filt.push_back(path_segment.x_list[idx]);
     path_y_filt.push_back(path_segment.y_list[idx]);
+    path_yaw_filt.push_back(path_segment.yaw_list[idx]);
+    path_delta_filt.push_back(path_segment.delta_list[idx]);
     path_types_filt.push_back(path_segment.types[idx]);
   }
 
   // Update path length
   path_length = path_x_filt.size();
-
-  // create spline functions
-  const int degree = 2;  // TODO (Schumann) degree=3 is buggy
-  const double smoothing = 0.0;
-  auto spline_x = fitpack_wrapper::BSpline1D(distances, path_x_filt, degree, smoothing);
-  auto spline_y = fitpack_wrapper::BSpline1D(distances, path_y_filt, degree, smoothing);
+  // Nothing to interpolate
   if (path_length <= 1)
   {
     return;
   }
 
+  const int spline_degree = std::min(MAX_INTERPOLATION_DEG, static_cast<int>(path_length - 1));
+  // create spline functions
+  auto spline_x = fitpack_wrapper::BSpline1D(distances, path_x_filt, spline_degree, 0.0);
+  auto spline_y = fitpack_wrapper::BSpline1D(distances, path_y_filt, spline_degree, 0.0);
+  auto spline_delta = fitpack_wrapper::BSpline1D(distances, path_delta_filt, spline_degree, 0.0);
+
   // Save last values to set the values at the end of segment again
-  double last_x = path_segment.x_list.back();
-  double last_y = path_segment.y_list.back();
-  double last_yaw = path_segment.yaw_list.back();
-  int last_dir = path_segment.direction_list.back();
-  PATH_TYPE last_type = path_segment.types.back();
+  const double last_x = path_segment.x_list.back();
+  const double last_y = path_segment.y_list.back();
+  const double last_yaw = path_segment.yaw_list.back();
+  const double last_delta = path_segment.delta_list.back();
+  const int last_dir = path_segment.direction_list.back();
+  const PATH_TYPE last_type = path_segment.types.back();
 
   // clear path_segment to add new ones. Keep first element
   path_segment.x_list.resize(1);
   path_segment.y_list.resize(1);
   path_segment.yaw_list.resize(1);
+  path_segment.delta_list.resize(1);
   path_segment.direction_list.resize(1);
   path_segment.types.resize(1);
 
   const PATH_TYPE type = segment_info.path_type;
 
-  // Variant 1
-  //  auto start = std::chrono::high_resolution_clock::now();
-  //  equal_dists_interpolation(path_segment, cum_dist, spline_x, spline_y, last_dir, type);
-  //  auto end = std::chrono::high_resolution_clock::now();
-  //  auto int_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  //  LOG_INF("equal_dists_interpolation: " << int_time.count() << "us\n");
-
-  // Variant 2
-  //  auto start = std::chrono::high_resolution_clock::now();
-  exact_dist_interpolation(path_segment, cum_dist, spline_x, spline_y, last_dir, type, interp_res);
-  //  auto end = std::chrono::high_resolution_clock::now();
-  //  auto int_time = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-  //  LOG_INF("exact_dist_interpolation: " << int_time.count() << "us\n");
+  exact_dist_interpolation(
+      path_segment, cum_dist, spline_x, spline_y, spline_delta, distances, path_yaw_filt, last_dir, type, interp_res);
 
   // ensure last pose and values
   path_segment.x_list.back() = last_x;
   path_segment.y_list.back() = last_y;
   path_segment.yaw_list.back() = last_yaw;
+  path_segment.delta_list.back() = last_delta;
   path_segment.direction_list.back() = last_dir;
   path_segment.types.back() = last_type;
-
-  //  LOG_INF("Checking distances of segment");
-  //  for (size_t i = 0; i < path_segment.x_list.size()-1; ++i)
-  //  {
-  //    const double x_diff = path_segment.x_list[i + 1] - path_segment.x_list[i];
-  //    const double y_diff = path_segment.y_list[i + 1] - path_segment.y_list[i];
-  //    const double dist = sqrt(x_diff * x_diff + y_diff * y_diff);
-  //    LOG_INF("Dist is: " << dist << " != " << interp_res_);
-  //    if (abs(dist - interp_res_) > 0.01)
-  //    {
-  //      LOG_ERR("Interp dist is off at idx = " << i << " of " << path_segment.x_list.size() - 1);
-  //      LOG_ERR("Dist is: " << dist << " != " << interp_res_);
-  //    }
-  //  }
-}
-
-void HybridAStar::equal_dists_interpolation(Path& path_segment,
-                                            double cum_dist,
-                                            fitpack_wrapper::BSpline1D& spline_x,
-                                            fitpack_wrapper::BSpline1D& spline_y,
-                                            int last_dir,
-                                            const PATH_TYPE type,
-                                            double interp_res)
-{
-  // Calculate nb of elements and resolution.
-  size_t nb_new_elements = ceil(cum_dist / interp_res);
-  const double res = cum_dist / static_cast<double>(nb_new_elements - 1);
-
-  path_segment.x_list.reserve(nb_new_elements);
-  path_segment.y_list.reserve(nb_new_elements);
-  path_segment.yaw_list.reserve(nb_new_elements);
-  path_segment.direction_list.reserve(nb_new_elements);
-  path_segment.types.reserve(nb_new_elements);
-
-  // Interpolate path
-  double s_val = 0;
-  for (size_t p_idx = 1; p_idx < nb_new_elements; ++p_idx)
-  {
-    s_val += res;
-    s_val = std::min(s_val, cum_dist);
-    const double x = spline_x(s_val);
-    const double y = spline_y(s_val);
-
-    double yaw = atan2(y - path_segment.y_list.back(), x - path_segment.x_list.back());
-    // Adapt yaw to direction
-    if (last_dir != 1)
-    {
-      yaw = util::constrainAngleMinPIPlusPi(yaw + util::PI);
-    }
-
-    // add values
-    path_segment.x_list.push_back(x);
-    path_segment.y_list.push_back(y);
-    path_segment.yaw_list.push_back(yaw);
-    path_segment.direction_list.push_back(last_dir);
-    path_segment.types.push_back(type);
-  }
 }
 
 void HybridAStar::exact_dist_interpolation(Path& path_segment,
                                            double cum_dist,
                                            fitpack_wrapper::BSpline1D& spline_x,
                                            fitpack_wrapper::BSpline1D& spline_y,
+                                           fitpack_wrapper::BSpline1D& spline_delta,
+                                           const std::vector<double>& distances,
+                                           const std::vector<double>& path_yaw_filt,
                                            int last_dir,
                                            const PATH_TYPE type,
                                            double interp_res)
@@ -2042,23 +1981,26 @@ void HybridAStar::exact_dist_interpolation(Path& path_segment,
   path_segment.x_list.reserve(approx_nb_new_elements);
   path_segment.y_list.reserve(approx_nb_new_elements);
   path_segment.yaw_list.reserve(approx_nb_new_elements);
+  path_segment.delta_list.reserve(approx_nb_new_elements);
   path_segment.direction_list.reserve(approx_nb_new_elements);
   path_segment.types.reserve(approx_nb_new_elements);
 
-  Point<double> prev_test_point = Point<double>(path_segment.x_list.front(), path_segment.y_list.front());
+  auto prev_test_point = Point<double>(path_segment.x_list.front(), path_segment.y_list.front());
+
   // Interpolate path
   double s_eval = 0;
   double dist_exact_point = 0;
-  const double step_s =
-      interp_res / 10;       // we hope this is small enough. actually one should intersect a circle with the spline
-  while (s_eval < cum_dist)  // last distance will always be between 2*interp_res and interp_res
+  // we hope this is small enough. actually one should intersect a circle with the spline
+  const double step_s = interp_res / 10;
+  // last distance will always be between 2*interp_res and interp_res
+  while (s_eval < cum_dist)
   {
     // eval point of spline
     s_eval += step_s;
-    const auto test_p = Point<double>(spline_x(s_eval), spline_y(s_eval));
+    const auto test_point = Point<double>(spline_x(s_eval), spline_y(s_eval));
 
     // sum little step distances
-    const double dist_prev_test_p = test_p.dist2(prev_test_point);
+    const double dist_prev_test_p = test_point.dist2(prev_test_point);
     dist_exact_point += dist_prev_test_p;
 
     // Valid point
@@ -2067,20 +2009,20 @@ void HybridAStar::exact_dist_interpolation(Path& path_segment,
       // interpolate between test points
       const double dist_too_far = dist_exact_point - interp_res;
       const double t = step_s - dist_too_far;
-      const double x_exact = std::lerp(prev_test_point.x, test_p.x, t);
-      const double y_exact = std::lerp(prev_test_point.y, test_p.y, t);
-      // correct yaw
-      double yaw = atan2(y_exact - path_segment.y_list.back(), x_exact - path_segment.x_list.back());
-      // Adapt yaw to direction
-      if (last_dir != 1)
-      {
-        yaw = util::constrainAngleMinPIPlusPi(yaw + util::PI);
-      }
+      const double x = std::lerp(prev_test_point.x, test_point.x, t);
+      const double y = std::lerp(prev_test_point.y, test_point.y, t);
+
+      // interpolate delta
+      const double delta = spline_delta(s_eval + t);
+
+      // interpolate yaw normally
+      const double yaw = util::angleInterpolation(s_eval + t, distances, path_yaw_filt);
 
       // add values
-      path_segment.x_list.push_back(x_exact);
-      path_segment.y_list.push_back(y_exact);
+      path_segment.x_list.push_back(x);
+      path_segment.y_list.push_back(y);
       path_segment.yaw_list.push_back(yaw);
+      path_segment.delta_list.push_back(delta);
       path_segment.direction_list.push_back(last_dir);
       path_segment.types.push_back(type);
 
@@ -2088,13 +2030,13 @@ void HybridAStar::exact_dist_interpolation(Path& path_segment,
       dist_exact_point = dist_too_far;
     }
     // set point as prev_point
-    prev_test_point = Point<double>(test_p);
+    prev_test_point = Point<double>(test_point);
   }
 }
 
 void HybridAStar::interpolatePath(Path& path, double interp_res)
 {
-  size_t path_length = path.x_list.size();
+  const size_t path_length = path.x_list.size();
 
   // Copy original path and clear the one later
   const Path orig_path(path);
@@ -2108,8 +2050,6 @@ void HybridAStar::interpolatePath(Path& path, double interp_res)
   std::vector<Segment> segments;
   PATH_TYPE path_type = PATH_TYPE::UNKNOWN;
   size_t segment_idx = 0;
-  //  LOG_INF("Path length " << path_length);
-  //  LOG_INF("Max idx " << path_length-1);
   for (size_t idx = 0; idx < path_length; ++idx)
   {
     // Path type changed or path direction changes
@@ -2141,26 +2081,18 @@ void HybridAStar::interpolatePath(Path& path, double interp_res)
   path.x_list.clear();
   path.y_list.clear();
   path.yaw_list.clear();
+  path.delta_list.clear();
   path.direction_list.clear();
   path.types.clear();
   path.idx_analytic = -1;  // invalidated. This should not be read anymore
 
   // Iterate pairwise through direction changes
-  for (Segment& segment_info : segments)
+  for (const Segment& segment_info : segments)
   {
-    //    LOG_INF("idxs: " << segment_info.start_idx << "..." << segment_info.end_idx);
-
-    // start and end boundary
-    size_t s_idx = segment_info.start_idx;
-    size_t e_idx = segment_info.end_idx;
-
-    // Slice path
-    std::vector<double> segment_x = util::slice(orig_path.x_list, s_idx, e_idx);
-    std::vector<double> segment_y = util::slice(orig_path.y_list, s_idx, e_idx);
-    std::vector<double> segment_yaw = util::slice(orig_path.yaw_list, s_idx, e_idx);
-    std::vector<int> segment_directions = util::slice(orig_path.direction_list, s_idx, e_idx);
-    std::vector<PATH_TYPE> segment_types = util::slice(orig_path.types, s_idx, e_idx);
-    Path path_segment(segment_x, segment_y, segment_yaw, segment_directions, 0.0, -1, segment_types);
+    Path path_segment =
+        orig_path.slice(static_cast<int>(segment_info.start_idx), static_cast<int>(segment_info.end_idx));
+    path_segment.cost = 0.0;
+    path_segment.idx_analytic = -1;
 
     // Don't interpolate segment if it turns on rear axis
     if (segment_info.path_type != PATH_TYPE::REAR_AXIS)
@@ -2171,7 +2103,7 @@ void HybridAStar::interpolatePath(Path& path, double interp_res)
 
     // if last segment
     bool inclusive_end = false;
-    if (segment_info.end_idx == path_length - 1)
+    if (segment_info.end_idx == (path_length - 1))
     {
       inclusive_end = true;
     }
@@ -2179,17 +2111,8 @@ void HybridAStar::interpolatePath(Path& path, double interp_res)
     util::extend(path.x_list, path_segment.x_list, inclusive_end);
     util::extend(path.y_list, path_segment.y_list, inclusive_end);
     util::extend(path.yaw_list, path_segment.yaw_list, inclusive_end);
+    util::extend(path.delta_list, path_segment.delta_list, inclusive_end);
     util::extend(path.direction_list, path_segment.direction_list, inclusive_end);
     util::extend(path.types, path_segment.types, inclusive_end);
-  }
-
-  // Filter yaws because of unknown error
-  const double max_yaw_jump = 10 * util::TO_RAD;
-  for (size_t i = 1; i < path.x_list.size() - 1; ++i)
-  {
-    if (util::getAngleDiff(path.yaw_list[i], path.yaw_list[i + 1]) > max_yaw_jump)
-    {
-      path.yaw_list[i + 1] = path.yaw_list[i];
-    }
   }
 }

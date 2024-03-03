@@ -2,7 +2,6 @@ set(LIBRARY_NAME collision_checker_lib)
 
 find_package (OpenCV REQUIRED)
 find_package (CUDA REQUIRED)
-find_package (pybind11 REQUIRED)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -21,9 +20,8 @@ add_library(${PROJECT_NAME}::${LIBRARY_NAME} ALIAS ${LIBRARY_NAME})
 
 target_link_libraries(${LIBRARY_NAME} PUBLIC
         stdc++fs
+        yaml-cpp
         util_lib
-        pybind11::module
-        pybind11::embed
         ${OpenCV_LIBS}
         )
 

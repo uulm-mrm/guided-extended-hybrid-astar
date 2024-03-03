@@ -3,86 +3,70 @@ ONLY_FORWARD: False
 IS_USHIFT: False
 
 # General planning params
-MAX_BRAKE_ACC: 4
+COMFORT_BRAKE_ACC: 1
+BREAK_ACC: 5
 ENV_UPDATE_T: 0.2
 
-WAYPOINT_TYPE: 1  # 0=astar path, 1=heuristic reduction, 2=None
+WAYPOINT_TYPE: 0  #0=heuristic reduction, 1=None
+
 DIV_DISTANCE: 10
-KEEP_PATH_RATIO: 0.5
+REDUCT_DIST: 20
 #WAYPOINT_TYPE: 2  # 0=astar path, 1=heuristic reduction, 2=None
 #DIV_DISTANCE: 999999
-#KEEP_PATH_RATIO: 0
 
-MAX_DIST4WAYPOINTS: 65
-WAYPOINT_DIST: 60
+MAX_DIST4WAYPOINTS: 50
+WAYPOINT_DIST: 40
 WAYPOINT_DIST_F: 5
 MIN_COLL_DIST: 40  # [m] distance of collision under which a replanning is forced
-MIN_V_EMERGENCY_PATHS: 1
 MAX_DIST4REPLAN: 10
 INTERP_RES: 0.1
 
 # Grid map
-GM_RES: 0.15625  # 20/128
-GM_DIM: 801  # change in cartographic module as well!
+#GM_RES: 0.15625  # 20/128
 
 MIN_THRESH: 100
-MAX_THRESH: 180
+MAX_THRESH: 130
 
 # minipatches
 MAX_PATCH_INS_DIST: 40  # Patches closer are inserted at every timestep to react to immediate changes, the others are inserted at every env recalc
-MAX_DIST2PATCH: 100 # Patches further away than this are completely ignored by the node itself
 
 # Patch
-PADDING_DIST: 100
+PATCH_PADDING_DIM: 100
+NEAR_PATCH_EDGE_DIM: 75
 
 # Collision Params
 YAW_RES_COLL: 3 # must be a divisor of 15
 DOUBLE_DISK_ROWS: False
-LEN_PER_DISK: 1.5
+LEN_PER_DISK: 2.0
 
-SAFETY_DISTANCE_M: 0.3
-SEARCH_DIST: 10
+SAFETY_DISTANCE_M: 0.1
+SEARCH_DIST: 5.0
 
-# Astar params
-astar_prox_cost_: 1.0
-astar_movement_cost_: 5.0
-astar_lane_movement_cost_: 3.0
-
-PLANNER_RES: 0.625  # 0.46875
+# Astar config
+#PLANNER_RES: 0.625  # 0.46875
 ASTAR_UNKNOWN_COST: 0
-MAX_EXTRA_NODES_ASTAR: 1000
+MAX_EXTRA_NODES_ASTAR: 10000
 HEURISTIC_EARLY_EXIT: True
 
-# Hybrid AStar params
-h_dist_cost_: 0.9
-h_prox_cost_: 1.0
-switch_cost_: 10.0  # switch direction penalty cost
-back_cost_:  2.0  # backward penalty cost
-steer_change_cost_:  20.0  # steer angle change penalty cost
-steer_cost_:  0.1  # steer angle penalty cost
+# Hybrid AStar config
 TURN_ON_POINT_ANGLE: 90
 YAW_RES: 10
-MOTION_RES_MIN: 0.5
+MOTION_RES_MIN: 0.1
 MOTION_RES_MAX: 1.0
 MIN_DIST_VAL: 3
-MAX_DIST_VAL: 8
+MAX_DIST_VAL: 10
 H_UNKNOWN_COST: 0  # Attention, if this value is set to high negative values the algorithm explores into infinity the unknown and does not want to reach the goal
 EXTRA_STEER_COST_ANALYTIC: 5
-REAR_AXIS_COST: 50
+REAR_AXIS_COST: 70
 TURN_ON_POINT_HORIZON: 15
-TIMEOUT: 100000
+TIMEOUT: 2000
 NON_H_NO_OBS_PATCH_DIM: 101
 RA_FREQ: 5
 
 # Reed shepp params
-MAX_EXTRA_NODES_HASTAR: 30
+MAX_EXTRA_NODES_HASTAR: 50
 DIST_THRESH_ANALYTIC_M: 10
 RS_2ND_STEER: 0.5
-
-# Voronoi params
-alpha_: 100.0  # the higher alpha, the less steep does the potential field fall after obstacles,
-do_max_: 7.0
-do_min_: 3.0
 
 # Astar without RS extension
 APPROX_GOAL_DIST: 2
@@ -92,11 +76,3 @@ APPROX_GOAL_ANGLE: 25
 GOAL_DIST: 0.1
 GOAL_ANGLE: 5
 MIN_REM_EL: 5
-
-# Optimizer
-MAX_ITER: 100
-W_CURVATURE: 1
-W_OBS: 5
-W_SMOOTHNESS: 2000
-ALPHA_OPT: 0.1
-

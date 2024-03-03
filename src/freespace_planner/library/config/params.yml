@@ -1,0 +1,25 @@
+# Astar params
+astar_prox_cost_: 5.0
+astar_movement_cost_: 5.0
+astar_lane_movement_cost_: 3.0
+
+# Hybrid AStar params
+h_dist_cost_: 0.9
+h_prox_cost_: 5.0
+switch_cost_: 10.0  # switch direction penalty cost
+back_cost_:  3.0  # backward penalty cost
+steer_change_cost_:  20.0  # steer angle change penalty cost
+steer_cost_:  1.0  # steer angle penalty cost
+
+# Voronoi params
+alpha_: 100.0  # the higher alpha, the less steep does the potential field fall after obstacles,
+do_max_: 7.0
+do_min_: 3.0
+
+# Optimizer
+max_iter_: 500
+wCurvature_: 1.0
+wObstacle_: 10.0
+wSmoothness_: 5000.0
+alpha_opt_: 0.1
+

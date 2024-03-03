@@ -6,13 +6,19 @@
 namespace util
 {
 
+/**
+ * Returns true if point was in polygon, used for geofencing
+ * @param polygon
+ * @param point
+ * @return
+ */
 bool point_in_poly(const Polygon& polygon, const Point<double>& point)
 {
-  int i;
-  int j;
+  size_t i;
+  size_t j;
   bool c = false;
-  const int nb_vert = polygon.vertices.size();
-  for (i = 0, j = nb_vert - 1; i < nb_vert; j = i++)
+  const size_t nb_vert = polygon.vertices.size();
+  for (i = 0, j = nb_vert - 1; i < nb_vert; j = i++)  // don't ask me what is going on here
   {
     if (((polygon.vertices[i].y > point.y) != (polygon.vertices[j].y > point.y)) &&
         (point.x < (polygon.vertices[j].x - polygon.vertices[i].x) * (point.y - polygon.vertices[i].y) /
@@ -34,26 +40,32 @@ bool point_in_poly(const Polygon& polygon, const Point<double>& point)
  */
 double getBilinInterp(double x, double y, const Vec2DFlat<double>& grid)
 {
-  int x1 = static_cast<int>(x);  // floor
-  int x2 = static_cast<int>(std::ceil(x));
-  int y1 = static_cast<int>(y);  // floor
-  int y2 = static_cast<int>(std::ceil(y));
-  double q11 = grid(y1, x1);
-  double q12 = grid(y2, x1);
-  double q21 = grid(y1, x2);
-  double q22 = grid(y2, x2);
+  const int x1 = std::max(static_cast<int>(x), 0);  // floor
+  const int x2 = std::max(static_cast<int>(std::ceil(x)), 0);
+  const int y1 = std::max(static_cast<int>(y), 0);  // floor
+  const int y2 = std::max(static_cast<int>(std::ceil(y)), 0);
+  const double q11 = grid(y1, x1);
+  const double q12 = grid(y2, x1);
+  const double q21 = grid(y1, x2);
+  const double q22 = grid(y2, x2);
   return bilinearInterpolation(q11, q12, q21, q22, x1, x2, y1, y2, x, y);
 }
 
+/**
+ * Bresenham algorithm
+ * @param start_p
+ * @param end_p
+ * @return
+ */
 std::vector<Point<int>> drawline(const Point<int>& start_p, const Point<int>& end_p)
 {
   int x = start_p.x;
   int y = start_p.y;
 
-  int dx = abs(end_p.x - start_p.x);
-  int sx = start_p.x < end_p.x ? 1 : -1;
-  int dy = -abs(end_p.y - start_p.y);
-  int sy = start_p.y < end_p.y ? 1 : -1;
+  const int dx = abs(end_p.x - start_p.x);
+  const int sx = start_p.x < end_p.x ? 1 : -1;
+  const int dy = -abs(end_p.y - start_p.y);
+  const int sy = start_p.y < end_p.y ? 1 : -1;
   int error = dx + dy;
 
   std::vector<Point<int>> points;
@@ -90,50 +102,12 @@ std::vector<Point<int>> drawline(const Point<int>& start_p, const Point<int>& en
   return points;
 }
 
-std::tuple<double, double, double> getSumSquaredCurvatureChange(const Path& path, double interp_res)
-{
-  return getSumSquaredCurvatureChangeVec(path.yaw_list, interp_res);
-}
-
-std::tuple<double, double, double> getSumSquaredCurvatureChangeVec(const std::vector<double>& yaw_list,
-                                                                   double interp_res)
-{
-  double sum_squared_curv_change = 0;
-  double max_curv_change = 0;
-  const double d_s = interp_res;
-
-  if (yaw_list.size() < 3)
-  {
-    return { 0, 0, 0 };
-  }
-
-  size_t nb_elements = yaw_list.size() - 2;
-
-  for (size_t i = 0; i < nb_elements; i++)
-  {
-    // get yaws
-    double yaw_pp = yaw_list.at(i + 2);
-    double yaw_p = yaw_list.at(i + 1);
-    double yaw = yaw_list.at(i);
-    // get kappas
-    double kappa_p = util::getAngleDiff(yaw_pp, yaw_p) / d_s;
-    double kappa = util::getAngleDiff(yaw_p, yaw) / d_s;
-    // get change of kappa
-    double curv_change = abs(kappa_p - kappa) / d_s;
-
-    if (curv_change > max_curv_change)
-    {
-      max_curv_change = curv_change;
-    }
-    // sum up the squares
-    sum_squared_curv_change += curv_change * curv_change;
-  }
-
-  double curv_change_rms = sqrt(sum_squared_curv_change / static_cast<double>(nb_elements));
-
-  return { sum_squared_curv_change, curv_change_rms, max_curv_change };
-}
-
+/**
+ * Return distance of path
+ * @param x_list
+ * @param y_list
+ * @return
+ */
 double getPathLength(const std::vector<double>& x_list, const std::vector<double>& y_list)
 {
   if (x_list.size() < 2)
@@ -142,7 +116,7 @@ double getPathLength(const std::vector<double>& x_list, const std::vector<double
   }
 
   double cum_dist = 0;
-  for (int i = 0; i < x_list.size() - 1; i++)
+  for (int i = 0; i < x_list.size() - 1; ++i)
   {
     const double d_x = x_list[i + 1] - x_list[i];
     const double d_y = y_list[i + 1] - y_list[i];

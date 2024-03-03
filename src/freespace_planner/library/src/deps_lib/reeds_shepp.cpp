@@ -587,11 +587,13 @@ void ReedsSheppStateSpace::type(const Pose<double>& q_0,
 
 ReedsSheppStateSpace::ReedsSheppPath ReedsSheppStateSpace::sample(const Pose<double>& q_0,
                                                                   const Pose<double>& q_1,
-                                                                  double step_size)
+                                                                  double step_size) const
 {
   ReedsSheppPath path = reedsShepp(q_0, q_1);
-  double dist = rho_ * path.length();
+  const double dist = rho_ * path.length();
   path.radi = rho_;
+
+  double delta = 0.0;
 
   // Store lengths and types for python compatibility
   int16_t idx = 0;
@@ -600,12 +602,15 @@ ReedsSheppStateSpace::ReedsSheppPath ReedsSheppStateSpace::sample(const Pose<dou
     switch (path.type_[idx])
     {
       case RS_LEFT:
+        delta = std::atan(1 / path.radi * wb_);
         path.ctypes.push_back('L');
         break;
       case RS_RIGHT:
+        delta = std::atan(-1 / path.radi * wb_);
         path.ctypes.push_back('R');
         break;
       case RS_STRAIGHT:
+        delta = 0.0;
         path.ctypes.push_back('S');
         break;
       case RS_NOP:
@@ -617,15 +622,14 @@ ReedsSheppStateSpace::ReedsSheppPath ReedsSheppStateSpace::sample(const Pose<dou
 
   for (double seg = 0.0; seg <= dist; seg += step_size)
   {
-    //    double qnew[3] = {};
     interpolate(q_0, path, seg / rho_);
-    //    cb( qnew, user_data);
   }
 
   // Add goal pose again
   path.x_list.push_back(q_1.x);
   path.y_list.push_back(q_1.y);
   path.yaw_list.push_back(q_1.yaw);
+  path.delta_list.push_back(delta);
   path.directions.push_back(path.directions.back());
   return path;
 }
@@ -647,6 +651,7 @@ void ReedsSheppStateSpace::interpolate(const Pose<double>& q_0, ReedsSheppPath& 
   Pose<double> pose = { 0.0, 0.0, 0.0 };
   pose.x = pose.y = 0.0;
   pose.yaw = q_0.yaw;
+  double delta = 0.0;
 
   int direction = 1;
 
@@ -668,16 +673,19 @@ void ReedsSheppStateSpace::interpolate(const Pose<double>& q_0, ReedsSheppPath& 
     switch (path.type_[i])
     {
       case RS_LEFT:
+        delta = std::atan(1 / path.radi * wb_);
         pose.x += (sin(phi + v) - sin(phi));
         pose.y += (-cos(phi + v) + cos(phi));
         pose.yaw = phi + v;
         break;
       case RS_RIGHT:
+        delta = std::atan(-1 / path.radi * wb_);
         pose.x += (-sin(phi - v) + sin(phi));
         pose.y += (cos(phi - v) - cos(phi));
         pose.yaw = phi - v;
         break;
       case RS_STRAIGHT:
+        delta = 0;
         pose.x += (v * cos(phi));
         pose.y += (v * sin(phi));
         break;
@@ -693,5 +701,6 @@ void ReedsSheppStateSpace::interpolate(const Pose<double>& q_0, ReedsSheppPath& 
   path.x_list.push_back(pose.x);
   path.y_list.push_back(pose.y);
   path.yaw_list.push_back(pose.yaw);
+  path.delta_list.push_back(delta);
   path.directions.push_back(direction);
 }

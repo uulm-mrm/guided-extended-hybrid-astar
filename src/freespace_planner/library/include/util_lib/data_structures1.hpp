@@ -40,7 +40,7 @@ class Point
 {
 public:
   Point() = default;
-  Point(const T x_in, const T y_in) : x(x_in), y(y_in){};
+  constexpr Point(const T x_in, const T y_in) : x(x_in), y(y_in){};
 
   [[nodiscard]] double dist2(const Point<T>& point) const
   {
@@ -338,13 +338,14 @@ template <typename T>
 class Vec2DFlat
 {
 private:
-  std::vector<T> vec_;
   std::string name_ = "not set";
   // Dimensions in each direction
   int xDim_{};
   int yDim_{};
 
 public:
+  std::vector<T> vec_;
+
   [[nodiscard]] std::pair<int, int> getDims() const
   {
     return { xDim_, yDim_ };
@@ -416,12 +417,12 @@ public:
   {
     if (RANGE_CHECKS)
     {
-      if (point.y > yDim_ || point.y < 0)
+      if (point.y > yDim_ - 1 || point.y < 0)
       {
         throw std::out_of_range("y index out of bounds in " + name_ + "\nindex " + std::to_string(point.y) + " of " +
                                 std::to_string(yDim_));
       }
-      if (point.x > xDim_ || point.x < 0)
+      if (point.x > xDim_ - 1 || point.x < 0)
       {
         throw std::out_of_range("x index out of bounds in " + name_ + "\nindex " + std::to_string(point.x) + " of " +
                                 std::to_string(xDim_));
@@ -430,8 +431,8 @@ public:
 
     if (CLIP)
     {
-      int x = std::clamp(point.x, 0, xDim_);
-      int y = std::clamp(point.y, 0, yDim_);
+      const int x = std::clamp(point.x, 0, xDim_ - 1);
+      const int y = std::clamp(point.y, 0, yDim_ - 1);
       return vec_[y * xDim_ + x];
     }
 
@@ -442,12 +443,12 @@ public:
   {
     if (RANGE_CHECKS)
     {
-      if (y_index > yDim_ || y_index < 0)
+      if (y_index > yDim_ - 1 || y_index < 0)
       {
         throw std::out_of_range("y index out of bounds in " + name_ + "\nindex " + std::to_string(y_index) + " of " +
                                 std::to_string(yDim_));
       }
-      if (x_index > xDim_ || x_index < 0)
+      if (x_index > xDim_ - 1 || x_index < 0)
       {
         throw std::out_of_range("x index out of bounds in " + name_ + "\nindex " + std::to_string(x_index) + " of " +
                                 std::to_string(xDim_));
@@ -455,8 +456,8 @@ public:
     }
     if (CLIP)
     {
-      x_index = std::clamp(x_index, 0, xDim_);
-      y_index = std::clamp(y_index, 0, yDim_);
+      x_index = std::clamp(x_index, 0, xDim_ - 1);
+      y_index = std::clamp(y_index, 0, yDim_ - 1);
     }
 
     return vec_[y_index * xDim_ + x_index];
@@ -466,12 +467,12 @@ public:
   {
     if (RANGE_CHECKS)
     {
-      if (point.y > yDim_ || point.y < 0)
+      if (point.y > yDim_ - 1 || point.y < 0)
       {
         throw std::out_of_range("y index out of bounds in " + name_ + "\nindex " + std::to_string(point.y) + " of " +
                                 std::to_string(yDim_));
       }
-      if (point.x > xDim_ || point.x < 0)
+      if (point.x > xDim_ - 1 || point.x < 0)
       {
         throw std::out_of_range("x index out of bounds in " + name_ + "\nindex " + std::to_string(point.x) + " of " +
                                 std::to_string(xDim_));
@@ -480,8 +481,8 @@ public:
 
     if (CLIP)
     {
-      int x = std::clamp(point.x, 0, xDim_);
-      int y = std::clamp(point.y, 0, yDim_);
+      const int x = std::clamp(point.x, 0, xDim_ - 1);
+      const int y = std::clamp(point.y, 0, yDim_ - 1);
       return vec_[y * xDim_ + x];
     }
 
@@ -559,17 +560,17 @@ public:
   {
     if (RANGE_CHECKS)
     {
-      if (y_index > yDim_ || y_index < 0)
+      if (y_index > yDim_ - 1 || y_index < 0)
       {
         throw std::out_of_range("y index out of bounds in " + name_ + "\nindex " + std::to_string(y_index) + " of " +
                                 std::to_string(yDim_));
       }
-      if (x_index > xDim_ || x_index < 0)
+      if (x_index > xDim_ - 1 || x_index < 0)
       {
         throw std::out_of_range("x index out of bounds in " + name_ + "\nindex " + std::to_string(x_index) + " of " +
                                 std::to_string(xDim_));
       }
-      if (yaw_index > zDim_ || yaw_index < 0)
+      if (yaw_index > zDim_ - 1 - 1 || yaw_index < 0)
       {
         throw std::out_of_range("z index out of bounds in " + name_ + "\nindex " + std::to_string(yaw_index) + " of " +
                                 std::to_string(zDim_));
@@ -578,9 +579,9 @@ public:
 
     if (CLIP)
     {
-      x_index = std::clamp(x_index, 0, xDim_);
-      y_index = std::clamp(y_index, 0, yDim_);
-      yaw_index = std::clamp(y_index, 0, zDim_);
+      x_index = std::clamp(x_index, 0, xDim_ - 1);
+      y_index = std::clamp(y_index, 0, yDim_ - 1);
+      yaw_index = std::clamp(y_index, 0, zDim_ - 1);
     }
 
     return vec_[yaw_index * yDim_ * xDim_ + y_index * xDim_ + x_index];
@@ -595,17 +596,17 @@ public:
   {
     if (RANGE_CHECKS)
     {
-      if (y_index > yDim_ || y_index < 0)
+      if (y_index > yDim_ - 1 || y_index < 0)
       {
         throw std::out_of_range("y index out of bounds in " + name_ + "\nindex " + std::to_string(y_index) + " of " +
                                 std::to_string(yDim_));
       }
-      if (x_index > xDim_ || x_index < 0)
+      if (x_index > xDim_ - 1 || x_index < 0)
       {
         throw std::out_of_range("x index out of bounds in " + name_ + "\nindex " + std::to_string(x_index) + " of " +
                                 std::to_string(xDim_));
       }
-      if (yaw_index > zDim_ || yaw_index < 0)
+      if (yaw_index > zDim_ - 1 || yaw_index < 0)
       {
         throw std::out_of_range("yaw index out of bounds in " + name_ + "\nindex " + std::to_string(yaw_index) +
                                 " of " + std::to_string(zDim_));
@@ -614,9 +615,9 @@ public:
 
     if (CLIP)
     {
-      x_index = std::clamp(x_index, 0, xDim_);
-      y_index = std::clamp(y_index, 0, yDim_);
-      yaw_index = std::clamp(y_index, 0, zDim_);
+      x_index = std::clamp(x_index, 0, xDim_ - 1);
+      y_index = std::clamp(y_index, 0, yDim_ - 1);
+      yaw_index = std::clamp(y_index, 0, zDim_ - 1);
     }
 
     return vec_[yaw_index * yDim_ * xDim_ + y_index * xDim_ + x_index];

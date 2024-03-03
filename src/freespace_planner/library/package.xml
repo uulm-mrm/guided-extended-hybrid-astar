@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+    <name>freespace_planner_lib</name>
+    <version>0.1.0</version>
+    <description>Library of Hybrid A* planner to navigate in free space</description>
+    <author>Oliver Schumann</author>
+    <maintainer email="oliver.schumann@uni-ulm.de">Oliver Schumann</maintainer>
+    <license>Apache-2.0</license>
+
+    <build_depend>aduulm_cmake_tools</build_depend>
+
+    <export>
+        <build_type>cmake</build_type>
+    </export>
+</package>

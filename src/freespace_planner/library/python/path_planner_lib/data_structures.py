@@ -17,8 +17,11 @@ class WayType(IntEnum):
 
 
 class VehConfig:
-    def __init__(self, max_steer: float = 0.55, width: float = 2.0, length: float = 4.0, wb: float = 2.7,
-                 lf: float = 3.0, lb: float = 1.0, lb_extra: float = 2.0, is_ushift: bool = False,
+    """
+    Default config set from Ul1500 for simulation
+    """
+    def __init__(self, max_steer: float = 0.55, width: float = 2.13, length: float = 5.255, wb: float = 3.165,
+                 lf: float = 3.993, lb: float = 1.17, lb_extra: float = 2.17, is_ushift: bool = False,
                  has_capsule: bool = False):
         self.max_steer: float = max_steer
         self.width: float = width
