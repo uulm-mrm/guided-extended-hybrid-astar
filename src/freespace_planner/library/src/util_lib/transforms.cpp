@@ -4,28 +4,9 @@
 
 #include "util_lib/transforms.hpp"
 
-void grid_tf::updateTransforms(double gm_res, double astar_res, const Point<double>& patch_origin_utm)
+void grid_tf::updateTransforms(const Point<double>& patch_origin_utm)
 {
-  updateGmRes(gm_res);
-
-  updateAstarRes(astar_res);
-
-  gm2star_ = gm_res / astar_res;
-  star2gm_ = 1 / gm2star_;
-
   updatePatchOrigin(patch_origin_utm);
-}
-
-void grid_tf::updateGmRes(double gm_res)
-{
-  gm2con_ = gm_res;
-  con2gm_ = 1 / gm2con_;
-}
-
-void grid_tf::updateAstarRes(double astar_res)
-{
-  star2con_ = astar_res;
-  con2star_ = 1 / star2con_;
 }
 
 void grid_tf::updatePatchOrigin(const Point<double>& patch_origin_utm)

@@ -7,8 +7,6 @@
 #include "util_lib/util2.hpp"
 #include "util_lib/data_structures2.hpp"
 
-#include "yaml-cpp/yaml.h"
-
 #include <cmath>
 #include <utility>
 #include <vector>
@@ -33,12 +31,11 @@ public:
   inline static Point<double> r_r_corner_;
   inline static Point<double> r_l_corner_;
   inline static std::vector<Point<double>> vehicle_vertices_;
+  inline static std::vector<Point<double>> vis_vehicle_vertices_;
 
   static void setPose(const Pose<double>& pose);
 
   static void initialize(double max_steer, double w_b, double l_f, double l_b, double width, bool is_ushift);
-
-  static std::vector<Point<double>> getVehicleVertices();
 
   static void move(Pose<double>& pose, double distance, double steer);
 

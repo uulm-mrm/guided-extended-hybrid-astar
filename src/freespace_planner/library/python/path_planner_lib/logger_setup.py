@@ -37,6 +37,11 @@ class Logger:
         else:
             return ("[" + type + "] ["+str(current_time)+"] [" + m + "]:\t" + output).expandtabs(Logger.tabs_expanded)
 
+    # @staticmethod
+    # def print2file(text):
+    #     with open(Logger.filename, 'a') as f:
+    #         print(text, file=f)
+
     def log_info(self, output, var=None):
         log_type = "INFO"
         text = Logger.create_text(log_type, self.module, output, var)

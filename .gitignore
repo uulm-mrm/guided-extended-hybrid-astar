@@ -1,5 +1,8 @@
+/colcon_build
+/log
 /install
 /build
 /cmake-build-debug
 .idea
+__pycache__
 *.data

@@ -1,12 +1,9 @@
 # simulation params
 SCENARIO_NAME: "Valet_parking_015"
+#SCENARIO_NAME: "Free_015"
 #SCENARIO_NAME: "depot"
 #SCENARIO_NAME: "Maze"
 #SCENARIO_NAME: "neu-ulm_gm"
-#SCENARIO_NAME: "Free_015"
-#SCENARIO_NAME: "nonh_noobs_test"
-#SCENARIO_NAME: "rear_axis_test"
-#SCENARIO_NAME: "rear_axis_test_super_narrow"  # bad alloc
 
 # Simulator modes
-ALL_VISIBLE: True
+ALL_VISIBLE: False

@@ -27,9 +27,7 @@ void AStar::initialize(int patch_dim, const Point<double>& patch_origin_utm, con
   patch_origin_astar_ = (patch_origin_utm * grid_tf::con2star_).toInt();
   patch_dim_ = patch_dim;
   unknown_cost_w_ = config["ASTAR_UNKNOWN_COST"].as<double>();
-  gm_res_ = config["GM_RES"].as<double>();
-  astar_res_ = config["PLANNER_RES"].as<double>();
-  astar_dim_ = std::floor(static_cast<double>(patch_dim_) * gm_res_ / astar_res_);
+  astar_dim_ = std::floor(static_cast<double>(patch_dim_) * GM_RES / ASTAR_RES);
   heuristic_early_exit_ = config["HEURISTIC_EARLY_EXIT"].as<bool>();
   max_extra_nodes_ = config["MAX_EXTRA_NODES_ASTAR"].as<unsigned int>();
 
@@ -39,35 +37,12 @@ void AStar::initialize(int patch_dim, const Point<double>& patch_origin_utm, con
   dist_val_min_ = config["MIN_DIST_VAL"].as<double>();
   dist_val_max_ = config["MAX_DIST_VAL"].as<double>();
 
-  movement_distances_ = getMovementDists();
-
-  for (size_t y_ind = 0; y_ind < VOR_DIM; ++y_ind)
-  {
-    for (size_t x_ind = 0; x_ind < VOR_DIM; ++x_ind)
-    {
-      vor_coords_[y_ind * VOR_DIM + x_ind][0] = static_cast<double>(x_ind);
-      vor_coords_[y_ind * VOR_DIM + x_ind][1] = static_cast<double>(y_ind);
-    }
-  }
-
-  for (size_t y_ind = 0; y_ind < VOR_DIM_SAMPLING; ++y_ind)
-  {
-    for (size_t x_ind = 0; x_ind < VOR_DIM_SAMPLING; ++x_ind)
-    {
-      vor_coords_sampling_[y_ind * VOR_DIM_SAMPLING + x_ind][0] = static_cast<double>(x_ind);
-      vor_coords_sampling_[y_ind * VOR_DIM_SAMPLING + x_ind][1] = static_cast<double>(y_ind);
-    }
-  }
-
   astar_grid_.setName("astar_grid_");
   movement_cost_map_.setName("movement_cost_map_");
+  restr_geofence_grid_.setName("restr_geofence_grid_");
 
   h_prox_arr_.setName("h_prox_arr_");
   temp_h_prox_arr_.setName("temp_h_prox_arr_");
-  obs_x_grad_.setName("obs_x_grad_");
-  temp_obs_x_grad_.setName("obs_x_grad_");
-  obs_y_grad_.setName("temp_obs_x_grad_");
-  temp_obs_y_grad_.setName("temp_obs_y_grad_");
   motion_res_map_.setName("motion_res_map_");
   temp_motion_res_map_.setName("temp_motion_res_map_");
 
@@ -81,53 +56,44 @@ void AStar::init_structs(int patch_dim)
 {
   // Patch dimension
   patch_dim_ = patch_dim;
-  astar_dim_ = std::floor(static_cast<double>(patch_dim_) * gm_res_ / astar_res_);
+  astar_dim_ = std::floor(static_cast<double>(patch_dim_) * GM_RES / ASTAR_RES);
 
   // astar grid
   astar_grid_.resize_and_reset(astar_dim_, astar_dim_, CollisionChecker::UNKNOWN);
 
-  // Voronoi proximity heuristic
   h_prox_arr_.resize_and_reset(astar_dim_, astar_dim_, 0.0);
-  // distance fields with gradients
-  obs_x_grad_.resize_and_reset(astar_dim_, astar_dim_, 0.0);
-  obs_y_grad_.resize_and_reset(astar_dim_, astar_dim_, 0.0);
-  // motion res map
   motion_res_map_.resize_and_reset(astar_dim_, astar_dim_, motion_res_max_);
-
-  resetMovementMap();
+  restr_geofence_grid_.resize_and_reset(astar_dim_, astar_dim_, 0);
+  movement_cost_map_.resize_and_reset(astar_dim_, astar_dim_, astar_movement_cost_);
 }
 
 void AStar::reinit(const Point<double>& patch_origin_utm, int patch_dim)
 {
   // Patch dimension
   patch_dim_ = patch_dim;
-  astar_dim_ = std::floor(static_cast<double>(patch_dim_) * gm_res_ / astar_res_);
+  astar_dim_ = std::floor(static_cast<double>(patch_dim_) * GM_RES / ASTAR_RES);
   patch_origin_utm_ = patch_origin_utm;
 
   // astar grid
   astar_grid_.resize_and_reset(astar_dim_, astar_dim_, CollisionChecker::UNKNOWN);
 
+  obstacle_dist_.resize_and_reset(VOR_DIM, VOR_DIM, CollisionChecker::FREE);
+  voronoi_dist_.resize_and_reset(VOR_DIM, VOR_DIM, CollisionChecker::FREE);
+
   /// Save maps prior to resizing
-  // Voronoi proximity heuristic
   util::saveTemp(h_prox_arr_, temp_h_prox_arr_, 0.0);
   h_prox_arr_.resize_and_reset(astar_dim_, astar_dim_, 0.0);
-  // distance fields with gradients
-  util::saveTemp(obs_x_grad_, temp_obs_x_grad_, 0.0);
-  obs_x_grad_.resize_and_reset(astar_dim_, astar_dim_, 0.0);
-  util::saveTemp(obs_y_grad_, temp_obs_y_grad_, 0.0);
-  obs_y_grad_.resize_and_reset(astar_dim_, astar_dim_, 0.0);
-  // motion res map
   util::saveTemp(motion_res_map_, temp_motion_res_map_, motion_res_max_);
   motion_res_map_.resize_and_reset(astar_dim_, astar_dim_, motion_res_max_);
 
-  resetMovementMap();
+  movement_cost_map_.resize_and_reset(astar_dim_, astar_dim_, astar_movement_cost_);
+
+  processGeofence();
 
   const Point<int> next_origin_astar = (patch_origin_utm * grid_tf::con2star_).toInt();
 
   util::copyPatch2Patch(patch_origin_astar_, next_origin_astar, h_prox_arr_, temp_h_prox_arr_);
   util::copyPatch2Patch(patch_origin_astar_, next_origin_astar, motion_res_map_, temp_motion_res_map_);
-  util::copyPatch2Patch(patch_origin_astar_, next_origin_astar, obs_x_grad_, temp_obs_x_grad_);
-  util::copyPatch2Patch(patch_origin_astar_, next_origin_astar, obs_y_grad_, temp_obs_y_grad_);
 
   patch_origin_astar_ = next_origin_astar;
 }
@@ -215,9 +181,9 @@ void AStar::calcDistanceHeuristic(const Point<int>& goal_pos,
       // goal is to get only near the goal
       if (get_only_near)
       {
-        double x_diff = current.pos.x - start_node.pos.x;
-        double y_diff = current.pos.y - start_node.pos.y;
-        double dist = sqrt(x_diff * x_diff + y_diff * y_diff);
+        const double x_diff = current.pos.x - start_node.pos.x;
+        const double y_diff = current.pos.y - start_node.pos.y;
+        const double dist = sqrt(x_diff * x_diff + y_diff * y_diff);
 
         if (dist < 10)
         {
@@ -291,7 +257,7 @@ void AStar::calcDistanceHeuristic(const Point<int>& goal_pos,
         const double current_cost = current.cost_ + movement_costs + prox_cost + unknown_cost;
 
         // Euclidean heuristic for guidance with lane cost as lowest estimate
-        const double h_euclid_dist = astar_lane_movement_cost_ * current.pos.dist2(start_node.pos) * astar_res_;
+        const double h_euclid_dist = astar_lane_movement_cost_ * current.pos.dist2(start_node.pos) * ASTAR_RES;
 
         // Combine heuristic costs and costs until here
         const double estimated_costs = h_euclid_dist + current_cost;
@@ -326,21 +292,6 @@ void AStar::calcDistanceHeuristic(const Point<int>& goal_pos,
       continue;
     }
   }
-}
-
-/**
- * Movement costs == travelled distance
- * @return
- */
-std::array<double, AStar::NB_GRID_MOTIONS> AStar::getMovementDists()
-{
-  std::array<double, NB_GRID_MOTIONS> movement_dists{ 1, 1, 1, 1, sqrt(2), sqrt(2), sqrt(2), sqrt(2) };
-
-  for (auto& dist : movement_dists)
-  {
-    dist *= astar_res_;
-  }
-  return movement_dists;
 }
 
 /**
@@ -384,6 +335,10 @@ bool AStar::verifyNode(int x_ind, int y_ind)
     return false;
   }
 
+  if (restr_geofence_grid_(y_ind, x_ind) == 1)
+  {
+    return false;
+  }
   return true;
 }
 
@@ -393,7 +348,7 @@ bool AStar::verifyNode(int x_ind, int y_ind)
  * @param heuristic
  * @return
  */
-int AStar::findValidNeighborIndex(int start_idx, std::unordered_map<size_t, NodeDisc> heuristic)
+int AStar::findValidNeighborIndex(int start_idx, const std::unordered_map<size_t, NodeDisc>& heuristic)
 {
   int backup_idx = start_idx + 1;
   //  LOG_INF("Checking node to the right");
@@ -411,7 +366,8 @@ int AStar::findValidNeighborIndex(int start_idx, std::unordered_map<size_t, Node
         //        LOG_INF("Checking node below");
         if (heuristic.find(backup_idx) == heuristic.end())
         {
-          //          LOG_ERR("No node around the ego/start position was in heuristic, this should never be the case");
+          std::cout << "No node around the ego/start position was in heuristic, this should never be the case"
+                    << std::endl;
           backup_idx = -1;
         }
       }
@@ -465,162 +421,90 @@ std::pair<std::vector<int>, std::vector<int>> AStar::getAstarPath(int x_index, i
 }
 
 /**
- * * calculate the voronoi potential field around the ego vehicle
- * This consists of getting the obstacles from the astar grid, calculated a voronoi diagram,
- * followed by final calculations
+ * Create distance transform
+ */
+void AStar::createDistanceTransform(const cv::Mat& input_mat, cv::Mat& dist_map, double val4dist)
+{
+  // distance transform
+  cv::distanceTransform(1 - (val4dist == input_mat), dist_map, cv::DIST_L2, cv::DIST_MASK_5);
+
+  // convert to cost in meters
+  dist_map *= grid_tf::star2con_;
+}
+
+/**
+ * Create voronoi potentialfield by creating the voronoi edges and calculating distance transforms to
+ * the obstacles and voronoi edges
  * @param ego_index
  */
 void AStar::calcVoronoiPotentialField(const Point<int>& ego_index)
 {
-  const auto origin_extract = getCurrentMapOrigin(ego_index, VOR_DIM);
-  const auto origin_sampling = getCurrentMapOrigin(ego_index, VOR_DIM_SAMPLING);
-  const auto opp_origin_sampling = origin_sampling + VOR_DIM_SAMPLING;
+  // 1. Partial array to parse
+  //  const auto origin_extract = getCurrentMapOrigin(ego_index, VOR_DIM);
+  const auto origin_sampling = getCurrentMapOrigin(ego_index, VOR_DIM);
+  const auto opp_origin_sampling = origin_sampling + VOR_DIM;
 
-  // Setup data of voronoi. Reserve with size of previous turn
-  vor_samples_.clear();
-  vor_samples_.reserve(vor_size_);
-
-  // find all occupied pixels
   const cv::Mat astar_mat(astar_dim_, astar_dim_, CV_8UC1, astar_grid_.getPtr());
-  cv::Mat matSampling = astar_mat(cv::Range(origin_sampling.y, opp_origin_sampling.y),
-                                  cv::Range(origin_sampling.x, opp_origin_sampling.x));
+  const cv::Range roi_y(origin_sampling.y, opp_origin_sampling.y);
+  const cv::Range roi_x(origin_sampling.x, opp_origin_sampling.x);
+  const cv::Mat matSampling = astar_mat(roi_y, roi_x);
 
+  // 2. create obstacle distance transform
+  cv::Mat obs_dist_mat(VOR_DIM, VOR_DIM, CV_32FC1, obstacle_dist_.getPtr());
+  createDistanceTransform(matSampling, obs_dist_mat, CollisionChecker::OCC);
+
+  // 3. create voronoi diagram
   const cv::Mat occ_mask = (matSampling == CollisionChecker::OCC);
   std::vector<cv::Point> indices;
   cv::findNonZero(occ_mask, indices);
 
-  // extract points
-  obs_samples_.clear();
-  obs_samples_.resize(indices.size());
-  int idx = 0;
-  for (const auto& point : indices)
-  {
-    obs_samples_[idx] = { static_cast<double>(point.x + origin_sampling.x),
-                          static_cast<double>(point.y + origin_sampling.y) };
-    idx++;
-  }
-
-  //  cv::Mat dist;
-  //  cv::Mat bin;
-  //  const cv::Mat occ_bin = (matSampling == CollisionChecker::OCC);
-  //  distanceTransform(occ_bin, dist, cv::DIST_L2, 3);
-  //  normalize(dist, dist, 0, 1.0, cv::NORM_MINMAX);
-  //
-  //  cv::namedWindow("distance transform w", cv::WINDOW_NORMAL);
-  //  cv::imshow("distance transform w", dist);
-  //  cv::waitKey(0);
-  //
-  //  std::memcpy(h_prox_arr_.getPtr(), dist.data, astar_dim_ * astar_dim_ * sizeof(uint8_t));
-
-  //  std::for_each(
-  //    std::execution::unseq,
-  //    vor_coords_.begin(),
-  //    vor_coords_.end(),
-  //    [&origin_extract, &dist](const auto& point) {
-  //        int x_ins = point[0] + origin_extract.x;
-  //        int y_ins = point[1] + origin_extract.y;
-  //        h_prox_arr_(y_ins, x_ins) = dist.at<uint8_t>(static_cast<int>(point[0]), static_cast<int>(point[1]));
-  //});
-  //  h_prox_arr_.vec = dist.data;
-
-  obs_size_ = obs_samples_.size();
-  obs_samples_.shrink_to_fit();
-
   // No obstacles, no vertices, no heuristic!
-  if (obs_size_ == 0)
+  if (indices.empty())
   {
     return;
   }
 
-  // Generate voronoi diagram
-  vdg::VoronoiDiagramGenerator::generateVoronoi_wrapper(obs_samples_,
-                                                        vor_samples_,
-                                                        origin_sampling.x,
-                                                        static_cast<double>(origin_sampling.x + VOR_DIM_SAMPLING),
-                                                        origin_sampling.y,
-                                                        static_cast<double>(origin_sampling.y + VOR_DIM_SAMPLING),
-                                                        do_min_);
-  vor_size_ = vor_samples_.size();
-  vor_samples_.shrink_to_fit();
+  // 3.1 Generate voronoi diagram
+  vdg::VoronoiDiagramGenerator::generateVoronoi_wrapper(
+      indices, voronoi_dist_, VOR_DIM - 1, VOR_DIM - 1, do_min_, CollisionChecker::OCC);
 
-  // construct a kd-tree index:
-  const my_kd_tree_t obs_mat_index(MAP_DIM, obs_samples_, 10);
-  const my_kd_tree_t vor_mat_index(MAP_DIM, vor_samples_, 10);
+  // 3.2 create voronoi distance field
+  cv::Mat vor_dist_mat(VOR_DIM, VOR_DIM, CV_32FC1, voronoi_dist_.getPtr());
+  AStar::createDistanceTransform(vor_dist_mat, vor_dist_mat, CollisionChecker::OCC);
 
-  std::for_each(
-      std::execution::unseq,
-      vor_coords_.begin(),
-      vor_coords_.end(),
-      [&origin_extract, &obs_mat_index, &vor_mat_index](const auto& point) {
-        calcVorFieldElement({ point[0] + origin_extract.x, point[1] + origin_extract.y }, obs_mat_index, vor_mat_index);
-      });
+  for (int i = 0; i < VOR_DIM * VOR_DIM; ++i)
+  {
+    setCostmapValue(i, origin_sampling);
+  }
 }
 
 /**
- * Calculation of the elements of the proximity heuristic and motion res map
- * @param query_pt
- * @param obs_mat_index
- * @param vor_mat_index
+ * Calculate elements of distance maps
+ * @param i
+ * @param origin_sampling
  */
-void AStar::calcVorFieldElement(const std::array<double, 2>& query_vec,
-                                const my_kd_tree_t& obs_mat_index,
-                                const my_kd_tree_t& vor_mat_index)
+void AStar::setCostmapValue(int i, Point<int> origin_sampling)
 {
-  std::vector<size_t> ret_indexes_obs(NUM_RESULTS);
-  std::vector<double> out_dists_sqr_obs(NUM_RESULTS);
-  nanoflann::KNNResultSet<double> resultSet_obs(NUM_RESULTS);
+  const auto index2D = reverse2DIndex(i, VOR_DIM);
+  const int x = index2D.x;
+  const int y = index2D.y;
 
-  std::vector<size_t> ret_indexes_vor(NUM_RESULTS);
-  std::vector<double> out_dists_sqr_vor(NUM_RESULTS);
-  nanoflann::KNNResultSet<double> resultSet_vor(NUM_RESULTS);
-
-  resultSet_obs.init(ret_indexes_obs.data(), out_dists_sqr_obs.data());
-  obs_mat_index.index->findNeighbors(resultSet_obs, query_vec.data());
-  const double d_o = sqrt(out_dists_sqr_obs[0]);
-
-  resultSet_vor.init(ret_indexes_vor.data(), out_dists_sqr_vor.data());
-  vor_mat_index.index->findNeighbors(resultSet_vor, query_vec.data());
-  const double d_v = sqrt(out_dists_sqr_vor[0]);
-
-  const int x_ind = static_cast<int>(query_vec[0]);
-  const int y_ind = static_cast<int>(query_vec[1]);
-
-  // calculate the voronoi potential fields
-  double val = 0;
-  double dist_x = 0;
-  double dist_y = 0;
-  if (d_o < do_max_)
+  if (obstacle_dist_(y, x) < do_max_)
   {
-    // get distance
-    val = (alpha_ / (alpha_ + d_o)) * (d_v / (d_o + d_v)) * std::pow((d_o - do_max_), 2) / std::pow(do_max_, 2);
-
-    if (d_o != 0)
-    {
-      // get distance components to next obstacle
-      dist_x = query_vec[0] - obs_mat_index.kdtree_get_pt(ret_indexes_obs[0], 0);
-      dist_y = query_vec[1] - obs_mat_index.kdtree_get_pt(ret_indexes_obs[0], 1);
-
-      // Invert and normalize that the gradient is longer on close objects
-      dist_x = util::sgn(dist_x) * (do_max_ - util::sgn(dist_x) * dist_x) / do_max_;
-      dist_y = util::sgn(dist_y) * (do_max_ - util::sgn(dist_y) * dist_y) / do_max_;
-    }
+    h_prox_arr_(y + origin_sampling.y, x + origin_sampling.x) =
+        (alpha_ / (alpha_ + obstacle_dist_(y, x))) *
+        (voronoi_dist_(y, x) / (obstacle_dist_(y, x) + voronoi_dist_(y, x))) *
+        std::pow((obstacle_dist_(y, x) - do_max_), 2) / std::pow(do_max_, 2);
   }
-
-  // threshold small values to 0 due to discretization of array
-  if (val < 0.08)
+  else
   {
-    val = 0;
+    h_prox_arr_(y + origin_sampling.y, x + origin_sampling.x) = 0.0;
   }
-
-  // set proximity array and gradients
-  h_prox_arr_(y_ind, x_ind) = val;
-  obs_x_grad_(y_ind, x_ind) = dist_x;
-  obs_y_grad_(y_ind, x_ind) = dist_y;
-
-  const double input = std::clamp(d_o, dist_val_min_, dist_val_max_);
+  const double input =
+      std::clamp(obstacle_dist_(y, x), static_cast<float>(dist_val_min_), static_cast<float>(dist_val_max_));
   const double motion_res = motion_res_min_ + ((motion_res_max_ - motion_res_min_) / (dist_val_max_ - dist_val_min_)) *
                                                   (input - dist_val_min_);
-  motion_res_map_(y_ind, x_ind) = std::max(motion_res, motion_res_min_);
+  motion_res_map_(y + origin_sampling.y, x + origin_sampling.x) = std::max(motion_res, motion_res_min_);
 }
 
 /**
@@ -628,34 +512,18 @@ void AStar::calcVorFieldElement(const std::array<double, 2>& query_vec,
  * @param idx
  * @return
  */
-std::pair<size_t, size_t> AStar::reverse2DIndex(size_t idx)
+Point<int> AStar::reverse2DIndex(int idx, int dim)
 {
-  size_t first_index = idx % astar_dim_;
-  return { first_index, (idx - first_index) / astar_dim_ };
+  const int first_index = idx % dim;
+  return { first_index, (idx - first_index) / dim };
 }
 
 /**
- * return previously calculated proximity heuristic array
+ * Get origin of map around current position
+ * @param ego_pos
+ * @param dim
  * @return
  */
-py::array_t<double> AStar::getObsGradX()
-{
-  return py::array_t<double>({ astar_dim_, astar_dim_ },  // shape
-                             obs_x_grad_.data().data()    // the data pointer
-  );
-}
-
-/**
- * return previously calculated proximity heuristic array
- * @return
- */
-py::array_t<double> AStar::getObsGradY()
-{
-  return py::array_t<double>({ astar_dim_, astar_dim_ },  // shape
-                             obs_y_grad_.data().data()    // the data pointer
-  );
-}
-
 Point<int> AStar::getCurrentMapOrigin(const Point<int>& ego_pos, size_t dim)
 {
   const int offset = std::floor(dim / 2);
@@ -663,19 +531,8 @@ Point<int> AStar::getCurrentMapOrigin(const Point<int>& ego_pos, size_t dim)
 }
 
 /**
- * return previously calculated heuristic
- * @param for_path
- * @return
+ * Pool map with cudnn pooling filters
  */
-std::unordered_map<size_t, NodeDisc> AStar::getDistanceHeuristic(bool for_path)
-{
-  if (for_path)
-  {
-    return closed_set_path_;
-  }
-  return closed_set_guidance_;
-}
-
 void AStar::calcAstarGridCuda()
 {
   Pooling::execute(CollisionChecker::patch_safety_arr_.getPtr(),
@@ -684,77 +541,17 @@ void AStar::calcAstarGridCuda()
                    static_cast<int>(astar_dim_));
 }
 
-///**
-// * Do a max pooling on the patch to receive the astar grid
-// */
-// void AStar::calcAstarGrid()
-//{
-//  const size_t patch_dim = CollisionChecker::getPatchDim();
-//  const size_t pool_dim = std::ceil(grid_tf::star2gm);
-//
-//  size_t idx_y_patch;
-//  size_t idx_x_patch;
-//  size_t x_gm_idx;
-//  size_t y_gm_idx;
-//  dtype maximum;
-//  dtype value;
-//
-//  // max pooling
-//  for (size_t y_ind = 0; y_ind < astar_dim_; ++y_ind)
-//  {
-//    for (size_t x_ind = 0; x_ind < astar_dim_; ++x_ind)
-//    {
-//      // Start with minimal value == 0 = FREE
-//      maximum = CollisionChecker::FREE;
-//
-//      // Calculate index in grid map
-//      x_gm_idx = static_cast<size_t>(round(static_cast<double>(x_ind) * grid_tf::star2gm));
-//      y_gm_idx = static_cast<size_t>(round(static_cast<double>(y_ind) * grid_tf::star2gm));
-//
-//      // begin pooling
-//      for (size_t y_shift = 0; y_shift < pool_dim; ++y_shift)
-//      {
-//        // Set and verify y grid index on patch_info
-//        idx_y_patch = y_gm_idx + y_shift;
-//        if (idx_y_patch > patch_dim - 1)
-//        {
-//          continue;
-//        }
-//
-//        for (size_t x_shift = 0; x_shift < pool_dim; ++x_shift)
-//        {
-//          // Set and verify x grid index on patch_info
-//          idx_x_patch = x_gm_idx + x_shift;
-//          if ((idx_x_patch > patch_dim - 1))
-//          {
-//            continue;
-//          }
-//
-//          // get value of collision array for the check on occupied
-//          value = CollisionChecker::getPatchValue(idx_x_patch, idx_y_patch);
-//
-//          // do the actual maximum comparison
-//          if (value > maximum)
-//          {
-//            maximum = value;
-//          }
-//        }
-//      }  // end of pooling
-//      astar_grid_(y_ind, x_ind) = maximum;
-//    }
-//  }
-//}
-
 void AStar::resetMovementMap()
 {
   movement_cost_map_.resize_and_reset(astar_dim_, astar_dim_, astar_movement_cost_);
 }
 
+/**
+ * Set pixel around lane graph to reduced movement costs
+ * @param edges
+ */
 void AStar::setMovementMap(const LaneGraph::edges_t& edges)
 {
-  const std::vector<Point<int>> p_diffs = { { 0, 0 },  { 0, 1 },  { 0, -1 }, { 1, 0 },  { 1, 1 },
-                                            { 1, -1 }, { -1, 0 }, { -1, 1 }, { -1, -1 } };
-
   for (const auto& edge : edges)
   {
     const auto& [n1_opt, node_center, n3_opt] = edge;
@@ -769,7 +566,7 @@ void AStar::setMovementMap(const LaneGraph::edges_t& edges)
 
       for (const auto& point : line1)
       {
-        for (const auto& p_diff : p_diffs)
+        for (const auto& p_diff : patch_coords_)
         {
           const Point<int> insert_point = point + p_diff;
           if (insert_point.x < 0 or insert_point.x >= astar_dim_ or insert_point.y < 0 or insert_point.y >= astar_dim_)
@@ -789,7 +586,7 @@ void AStar::setMovementMap(const LaneGraph::edges_t& edges)
 
       for (const auto& point : line2)
       {
-        for (const auto& p_diff : p_diffs)
+        for (const auto& p_diff : patch_coords_)
         {
           const Point<int> insert_point = point + p_diff;
           if (insert_point.x < 0 or insert_point.x >= astar_dim_ or insert_point.y < 0 or insert_point.y >= astar_dim_)
@@ -799,6 +596,56 @@ void AStar::setMovementMap(const LaneGraph::edges_t& edges)
 
           AStar::movement_cost_map_(point + p_diff) = AStar::astar_lane_movement_cost_;
         }
+      }
+    }
+  }
+}
+
+/**
+ *
+ */
+void AStar::processGeofence()
+{
+  AStar::restr_geofence_grid_.resize_and_reset(AStar::astar_dim_, AStar::astar_dim_, 0);
+
+  // Get min and max coordinates
+  int min_x = AStar::astar_dim_;
+  int min_y = AStar::astar_dim_;
+  int max_x = 0;
+  int max_y = 0;
+  for (auto& point : AStar::restr_geofence_.vertices)
+  {
+    const Point<double> point_patch = point - patch_origin_utm_;
+    const Point<int> point_astar = (point_patch * grid_tf::con2star_).toInt();
+    if (point_astar.x < min_x)
+    {
+      min_x = point_astar.x;
+    }
+    if (point_astar.y < min_y)
+    {
+      min_y = point_astar.y;
+    }
+    if (point_astar.x > max_x)
+    {
+      max_x = point_astar.x;
+    }
+    if (point_astar.y > max_y)
+    {
+      max_y = point_astar.y;
+    }
+  }
+
+  // iterate through min max
+  for (int x_idx = min_x; x_idx < max_x; ++x_idx)
+  {
+    for (int y_idx = min_x; y_idx < max_y; ++y_idx)
+    {
+      const Point<int> point_astar(x_idx, y_idx);
+      const Point<double> point_utm = point_astar.toDouble() * grid_tf::star2con_ + patch_origin_utm_;
+
+      if (util::point_in_poly(restr_geofence_, point_utm))
+      {
+        AStar::restr_geofence_grid_(point_astar) = 1;
       }
     }
   }

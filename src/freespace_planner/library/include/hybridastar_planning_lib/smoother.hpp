@@ -19,15 +19,20 @@
 class Smoother
 {
 private:
+  inline static constexpr int kborder_lim = 10;
+  inline static constexpr size_t kignore_indices = 4;
+  inline static constexpr int kmax_coll_tries = 100;
+
+  inline static bool is_initialized_ = false;
+  inline static double kappaMax_;
+
+public:
   inline static unsigned int max_iter_;
   inline static double wSmoothness_;
   inline static double wObstacle_;
   inline static double wCurvature_;
-  inline static double alpha_;
-  inline static double kappaMax_;
-  inline static bool is_initialized_ = false;
+  inline static double alpha_opt_;
 
-public:
   static void init();
 
   static void smooth_path(Path& path);

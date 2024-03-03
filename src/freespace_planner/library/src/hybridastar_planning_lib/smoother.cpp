@@ -9,11 +9,6 @@ void Smoother::init()
   // Load config
   YAML::Node config = YAML::LoadFile(AStar::path2config_);
 
-  max_iter_ = config["MAX_ITER"].as<unsigned int>();
-  wCurvature_ = config["W_CURVATURE"].as<double>();
-  wObstacle_ = config["W_OBS"].as<double>();
-  wSmoothness_ = config["W_SMOOTHNESS"].as<double>();
-  alpha_ = config["ALPHA_OPT"].as<double>();
   is_initialized_ = true;
   kappaMax_ = Vehicle::max_curvature_;
 }
@@ -25,22 +20,21 @@ void Smoother::init()
  */
 void Smoother::optimize_gd(Path& newPath, const std::vector<int>& collision_indices)
 {
-  size_t path_length = newPath.x_list.size();
-  size_t border_diff = 4;
+  const size_t path_length = newPath.x_list.size();
 
-  if (path_length < 2 * border_diff)
+  if (path_length < 2 * kignore_indices)
   {
     return;
   }
 
   // Gradient descent begin
   unsigned int iterations = 0;
-  double totalWeight = wSmoothness_ + wObstacle_ + wCurvature_;
+  const double totalWeight = wSmoothness_ + wObstacle_ + wCurvature_;
   while (iterations < max_iter_)
   {
     // Ignore the first nodes of the path, and some points around
-    size_t start_idx = border_diff;
-    size_t max_idx = path_length - border_diff;
+    const size_t start_idx = kignore_indices;
+    const size_t max_idx = path_length - kignore_indices;
     for (size_t i = start_idx; i < max_idx; ++i)
     {
       if (newPath.types[i - 3] == PATH_TYPE::REAR_AXIS || newPath.types[i - 2] == PATH_TYPE::REAR_AXIS ||
@@ -82,16 +76,23 @@ void Smoother::optimize_gd(Path& newPath, const std::vector<int>& collision_indi
         continue;
       }
 
-      Point<double> gradient_vector;
+      // check if point is out of bounds
+      const auto [dim_x, dim_y] = AStar::obs_x_grad_.getDims();
+      if (xi0.x < kborder_lim || xi0.y < kborder_lim || xi0.x > dim_x + kborder_lim || xi0.y > dim_y + kborder_lim)
+      {
+        continue;
+      }
 
-      gradient_vector = gradient_vector - obsTerm(xi0, xip1);
+      Point<double> gradient_vector = { 0, 0 };
+
+      //      gradient_vector = gradient_vector - obsTerm(xi0, xip1);
 
       gradient_vector = gradient_vector - smoothnessTerm(xim2, xim1, xi0, xip1, xip2);
 
       gradient_vector = gradient_vector - curvatureTerm(xim2, xim1, xi0, xip1, xip2);
 
       // Update coordinate
-      Point<double> step = alpha_ * gradient_vector / totalWeight;
+      Point<double> step = alpha_opt_ * gradient_vector / totalWeight;
       // clamp gradients
       step = Point<double>(std::clamp(step.x, -1.0, 1.0), std::clamp(step.y, -1.0, 1.0));
       xi0 = xi0 + step;
@@ -99,7 +100,7 @@ void Smoother::optimize_gd(Path& newPath, const std::vector<int>& collision_indi
       // recalculate yaw
       newPath.x_list[i] = xi0.getX();
       newPath.y_list[i] = xi0.getY();
-      Point<double> diff_point = xi0 - xim1;
+      const Point<double> diff_point = xi0 - xim1;
       double yaw = std::atan2(diff_point.getY(), diff_point.getX());
       if (newPath.direction_list[i] != 1)
       {
@@ -129,7 +130,6 @@ void Smoother::smooth_path(Path& path)
 
   int coll_idx = -1;
   std::vector<int> collision_indices;
-  int max_coll_tries = 100;
   int coll_try_idx = 0;
   // Loop to anchor colliding points to original points
   do
@@ -146,7 +146,7 @@ void Smoother::smooth_path(Path& path)
       path.y_list[coll_idx] = prevPath.y_list[coll_idx];
       path.yaw_list[coll_idx] = prevPath.yaw_list[coll_idx];
       coll_try_idx++;
-      if (coll_try_idx > max_coll_tries)
+      if (coll_try_idx > kmax_coll_tries)
       {
         //        LOG_WARN("Path still collides, anchoring failed. Resetting to original one");
         path = Path(prevPath);
@@ -162,35 +162,35 @@ void Smoother::smooth_path(Path& path)
  * @param xip
  * @return
  */
-Point<double> Smoother::obsTerm(const Point<double>& xi0, const Point<double>& xip)
-{
-  // Take value at geometric center
-  //  LOG_INF("xi0 " << xi0);
-  Point<double> diff = xip - xi0;
-  double yaw = std::atan2(diff.getY(), diff.getX());
-  double rot_geo_center_x = Vehicle::geo_center_ * cos(yaw);
-  double rot_geo_center_y = Vehicle::geo_center_ * sin(yaw);
-  // Do bilinear interpolation of gradients
-  double x_val = (xi0.getX() + rot_geo_center_x) * grid_tf::con2star_;
-  double y_val = (xi0.getY() + rot_geo_center_y) * grid_tf::con2star_;
-  double x_grad = util::getBilinInterp(x_val, y_val, AStar::obs_x_grad_);
-  double y_grad = util::getBilinInterp(x_val, y_val, AStar::obs_y_grad_);
-  Point<double> grad(x_grad, y_grad);
-
-  // If there is no gradient
-  if (grad.length() == 0)
-  {
-    return { 0, 0 };
-  }
-
-  // Project grad orthogonal onto point
-  double rad90 = 90.0 / 180 * util::PI;
-  double delta_phi = rad90 + std::acos(std::clamp(diff.dot(grad) / (diff.length() * grad.length()), -1.0, 1.0));
-  Point<double> rot(-sin(delta_phi), cos(delta_phi));
-  Point<double> grad_orth = (rot.dot(grad)) * rot;
-
-  return -wObstacle_ * grad_orth;
-}
+// Point<double> Smoother::obsTerm(const Point<double>& xi0, const Point<double>& xip)
+//{
+//   // Take value at geometric center
+//   //  LOG_INF("xi0 " << xi0);
+//   const Point<double> diff = xip - xi0;
+//   const double yaw = std::atan2(diff.getY(), diff.getX());
+//   const double rot_geo_center_x = Vehicle::geo_center_ * cos(yaw);
+//   const double rot_geo_center_y = Vehicle::geo_center_ * sin(yaw);
+//   // Do bilinear interpolation of gradients
+//   const double x_val = (xi0.getX() + rot_geo_center_x) * grid_tf::con2star_;
+//   const double y_val = (xi0.getY() + rot_geo_center_y) * grid_tf::con2star_;
+//   const double x_grad = util::getBilinInterp(x_val, y_val, AStar::obs_x_grad_);
+//   const double y_grad = util::getBilinInterp(x_val, y_val, AStar::obs_y_grad_);
+//   const Point<double> grad(x_grad, y_grad);
+//
+//   // If there is no gradient
+//   if (grad.length() == 0)
+//   {
+//     return { 0, 0 };
+//   }
+//
+//   // Project grad orthogonal onto point
+//   const double rad90 = 90.0 / 180 * util::PI;
+//   const double delta_phi = rad90 + std::acos(std::clamp(diff.dot(grad) / (diff.length() * grad.length()),
+//   -1.0, 1.0)); const Point<double> rot(-sin(delta_phi), cos(delta_phi)); const Point<double> grad_orth =
+//   (rot.dot(grad)) * rot;
+//
+//   return -wObstacle_ * grad_orth;
+// }
 
 /**
  * Penalizes if two consecutive vectors differ
@@ -225,7 +225,6 @@ Point<double> Smoother::curvatureTerm(const Point<double>& x_im2,
                                       const Point<double>& x_ip1,
                                       const Point<double>& x_ip2)
 {
-  Point<double> gradient;
   // the vectors between the nodes
   const Point<double>& delta_x_im1 = x_im1 - x_im2;
   const Point<double>& delta_x_i = x_i - x_im1;
@@ -237,8 +236,7 @@ Point<double> Smoother::curvatureTerm(const Point<double>& x_im2,
   {
     // return gradient of 0
     //    std::cout << "abs values not larger than 0" << std::endl;
-    Point<double> zeros;
-    return zeros;
+    return { 0, 0 };
   }
   // the angular change at the node
   auto compute_kappa =
@@ -261,8 +259,7 @@ Point<double> Smoother::curvatureTerm(const Point<double>& x_im2,
   // if the curvature is smaller than the maximum do nothing
   if (kappa_i <= kappaMax_)
   {
-    Point<double> zeros;
-    return zeros;
+    return { 0, 0 };
   }
   auto compute_d_delta_phi = [](const double delta_phi) {
     return -1. / std::sqrt(1. - std::pow(std::cos(delta_phi), 2));
@@ -289,13 +286,12 @@ Point<double> Smoother::curvatureTerm(const Point<double>& x_im2,
                                      delta_phi_ip1 / std::pow(delta_x_ip1.length(), 3) * delta_x_ip1;
   const Point<double>& kip1 = 2. * (kappa_ip1 - kappaMax_) * d_kappa_ip1;
 
-  gradient = wCurvature_ * (0.25 * kim1 + 0.5 * ki0 + 0.25 * kip1);
+  const Point<double> gradient = wCurvature_ * (0.25 * kim1 + 0.5 * ki0 + 0.25 * kip1);
 
   if (std::isnan(gradient.getX()) || std::isnan(gradient.getY()))
   {
     //    std::cout << "nan values in curvature term" << std::endl;
-    Point<double> zeros;
-    return zeros;
+    return { 0, 0 };
   }
   return gradient;
 }

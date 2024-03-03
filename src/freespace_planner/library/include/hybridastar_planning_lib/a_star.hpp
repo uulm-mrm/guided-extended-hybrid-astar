@@ -19,8 +19,6 @@
 #include "util_lib/transforms.hpp"
 
 #include "deps_lib/VoronoiDiagramGenerator.hpp"
-#include "deps_lib/nanoflann.hpp"
-#include "deps_lib/KdTreeVectorOfVectorsAdaptors.hpp"
 
 // #include "logger_setup.hpp"
 
@@ -35,50 +33,41 @@ class AStar
 {
 private:
   inline static constexpr uint8_t NB_GRID_MOTIONS = 8;
-  inline static constexpr size_t NUM_RESULTS = 1;
-  inline static constexpr uint8_t MAP_DIM = 2;
-  inline static constexpr size_t VOR_DIM = 150;  // 300 for paper cases
-  inline static constexpr uint8_t VOR_PAD = 20;
-  inline static constexpr uint8_t VOR_DIM_SAMPLING = VOR_DIM + VOR_PAD + VOR_PAD;
-
-  // Data for the Voronoi potential field
-  using vector_of_arrays = std::vector<std::array<double, MAP_DIM>>;
-
-  // Dimension set at compile-time
-  using my_kd_tree_t = KDTreeVectorOfVectorsAdaptor<vector_of_arrays, double, MAP_DIM, nanoflann::metric_L2_Simple>;
+  inline static constexpr size_t VOR_DIM = 200;  // 300 for paper cases
 
   inline static Point<double> patch_origin_utm_;
   inline static Point<int> patch_origin_astar_;
-  inline static vector_of_arrays obs_samples_;
-  inline static vector_of_arrays vor_samples_;
 
   inline static double unknown_cost_w_;
-  inline static double astar_res_;
   inline static size_t patch_dim_;
-  inline static double gm_res_;
   inline static bool heuristic_early_exit_;
   inline static unsigned int max_extra_nodes_;
-  inline static size_t obs_size_ = 1000;
-  inline static size_t vor_size_ = 1000;
 
   inline static double motion_res_min_;
   inline static double motion_res_max_;
   inline static double dist_val_min_;
   inline static double dist_val_max_;
 
-  inline static std::array<std::array<double, MAP_DIM>, VOR_DIM * VOR_DIM> vor_coords_;
-  inline static std::array<std::array<double, MAP_DIM>, VOR_DIM_SAMPLING * VOR_DIM_SAMPLING> vor_coords_sampling_;
-
-  inline static const std::array<Point<int>, NB_GRID_MOTIONS> motion_ = {
+  inline static constexpr std::array<Point<int>, NB_GRID_MOTIONS> motion_ = {
     { { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 }, { -1, -1 }, { -1, 1 }, { 1, -1 }, { 1, 1 } }
   };
-  inline static std::array<double, NB_GRID_MOTIONS> movement_distances_;
+  inline static std::array<double, NB_GRID_MOTIONS> movement_distances_ = { ASTAR_RES,          ASTAR_RES,
+                                                                            ASTAR_RES,          ASTAR_RES,
+                                                                            ASTAR_RES* sqrt(2), ASTAR_RES* sqrt(2),
+                                                                            ASTAR_RES* sqrt(2), ASTAR_RES* sqrt(2) };
+
+  inline static constexpr std::array<Point<int>, NB_GRID_MOTIONS + 1> patch_coords_ = {
+    { { 0, 0 }, { 1, 0 }, { 0, 1 }, { -1, 0 }, { 0, -1 }, { -1, -1 }, { -1, 1 }, { 1, -1 }, { 1, 1 } }
+  };
 
 public:
   // voronoi field
   inline static double alpha_;
   inline static double do_max_;
   inline static double do_min_;
+
+  inline static Vec2DFlat<float> obstacle_dist_;
+  inline static Vec2DFlat<float> voronoi_dist_;
 
   inline static double astar_movement_cost_;
   inline static double astar_prox_cost_;
@@ -94,6 +83,8 @@ public:
 
   inline static Vec2DFlat<uint8_t> astar_grid_;
   inline static Vec2DFlat<double> movement_cost_map_;
+  inline static Vec2DFlat<uint8_t> restr_geofence_grid_;
+  inline static Polygon restr_geofence_;
 
   // voronoi dependant arrays are copied on new patch creation
   inline static Vec2DFlat<double> h_prox_arr_;
@@ -115,24 +106,20 @@ public:
 
   static std::pair<std::vector<int>, std::vector<int>> getAstarPath(int x_ind, int y_ind);
 
-  static py::array_t<double> getObsGradX();
-
-  static py::array_t<double> getObsGradY();
-
   static void calcDistanceHeuristic(const Point<int>& goal_pos,
                                     const Point<int>& start_pos,
                                     bool for_path = true,
                                     bool get_only_near = false);
 
-  static std::unordered_map<size_t, NodeDisc> getDistanceHeuristic(bool for_path = false);
+  static void createDistanceTransform(const cv::Mat& input_mat, cv::Mat& dist_map, double val4dist);
 
   static void calcVoronoiPotentialField(const Point<int>& ego_index);
 
-  static std::pair<size_t, size_t> reverse2DIndex(size_t idx);
+  static void setCostmapValue(int i, Point<int> origin_sampling);
+
+  static Point<int> reverse2DIndex(int idx, int dim);
 
   static void calcAstarGridCuda();
-
-  //  static void calcAstarGrid();
 
   static size_t calcIndex(size_t x_ind, size_t y_ind);
 
@@ -142,15 +129,11 @@ public:
 
   static void setMovementMap(const LaneGraph::edges_t& edges);
 
+  static void processGeofence();
+
+  static int findValidNeighborIndex(int start_idx, const std::unordered_map<size_t, NodeDisc>& heuristic);
+
 private:
-  static int findValidNeighborIndex(int start_idx, std::unordered_map<size_t, NodeDisc> heuristic);
-
-  static void calcVorFieldElement(const std::array<double, 2>& query_vec,
-                                  const my_kd_tree_t& obs_mat_index,
-                                  const my_kd_tree_t& vor_mat_index);
-
-  static std::array<double, NB_GRID_MOTIONS> getMovementDists();
-
   static bool verifyNode(int x_ind, int y_ind);
 
   static Point<int> getCurrentMapOrigin(const Point<int>& ego_pos, size_t dim);

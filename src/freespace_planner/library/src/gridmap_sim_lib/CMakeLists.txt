@@ -26,7 +26,6 @@ if(pybind11_FOUND)
 
     target_link_libraries(${PY_TARGET_NAME} PRIVATE
             stdc++fs
-            yaml-cpp
             pybind11::module
             pybind11::embed
             ${OpenCV_LIBS}

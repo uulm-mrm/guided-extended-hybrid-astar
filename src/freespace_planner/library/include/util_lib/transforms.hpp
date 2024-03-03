@@ -68,24 +68,20 @@ inline std::vector<T> transformVec(const std::vector<T>& vec, std::function<T(T)
 class grid_tf
 {
 public:
-  inline static double gm2con_;
-  inline static double con2gm_;
+  inline static constexpr double gm2con_ = GM_RES;
+  inline static constexpr double con2gm_ = 1 / gm2con_;
 
-  inline static double star2con_;
-  inline static double con2star_;
+  inline static constexpr double star2con_ = ASTAR_RES;
+  inline static constexpr double con2star_ = 1 / star2con_;
 
-  inline static double gm2star_;
-  inline static double star2gm_;
+  inline static constexpr double gm2star_ = GM_RES / ASTAR_RES;
+  inline static constexpr double star2gm_ = 1 / gm2star_;
 
 private:
   inline static Point<double> patch_origin_utm_;
 
 public:
-  static void updateTransforms(double gm_res, double astar_res, const Point<double>& patch_origin_utm);
-
-  static void updateGmRes(double gm_res);
-
-  static void updateAstarRes(double astar_res);
+  static void updateTransforms(const Point<double>& patch_origin_utm);
 
   static void updatePatchOrigin(const Point<double>& patch_origin_utm);
 

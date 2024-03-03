@@ -36,7 +36,8 @@
 #include <cstdlib>
 #include <cstring>
 
-#
+#include "util_lib/data_structures1.hpp"
+#include "opencv2/imgproc.hpp"
 
 #ifndef NULL
 #define NULL 0
@@ -111,15 +112,14 @@ public:
   VoronoiDiagramGenerator();
   ~VoronoiDiagramGenerator();
 
-  static void generateVoronoi_wrapper(const std::vector<std::array<double, POINT_DIM>>& samples,
-                                      std::vector<std::array<double, POINT_DIM>>& vor_samples,
-                                      double minX,
+  static void generateVoronoi_wrapper(const std::vector<cv::Point>& samples,
+                                      Vec2DFlat<float>& vor_dist_map_,
                                       double maxX,
-                                      double minY,
                                       double maxY,
-                                      double minDist);
+                                      double minDist,
+                                      uint8_t val2add);
 
-  bool generateVoronoi(const std::vector<std::array<double, POINT_DIM>>& samples,
+  bool generateVoronoi(const std::vector<cv::Point>& samples,
                        int numPoints,
                        double minX,
                        double maxX,

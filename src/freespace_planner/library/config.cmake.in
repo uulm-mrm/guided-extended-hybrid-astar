@@ -1,0 +1,23 @@
+set(@PROJECT_NAME@_VERSION "@PACKAGE_LIBRARY_VERSION@")
+@PACKAGE_INIT@
+set_and_check(@PROJECT_NAME@_INCLUDE_DIRS "@PACKAGE_INCLUDE_INSTALL_DIR@")
+#Comment the following line if you have a header-only library (INTERFACE library)
+set_and_check(@PROJECT_NAME@_LIB_DIR "@PACKAGE_LIB_INSTALL_DIR@")
+#Uncomment the following line if your library installs binaries
+#set_and_check(@PROJECT_NAME@_BIN_DIR "@PACKAGE_BIN_INSTALL_DIR@")
+
+set(@PROJECT_NAME@_LIBRARIES @PROJECT_NAME@::@PROJECT_NAME@)
+
+find_package (pybind11 REQUIRED)
+find_package (OpenCV REQUIRED)
+find_package (CUDA REQUIRED)
+
+# Uncomment if loger is needed
+# find_package(aduulm_cmake_tools REQUIRED)
+# find_aduulm_package(aduulm_logger_lib REQUIRED)
+
+check_required_components(@PROJECT_NAME@)
+
+#Include exported targets
+get_filename_component(SELF_DIR "${CMAKE_CURRENT_LIST_FILE}" PATH)
+include(${SELF_DIR}/@PROJECT_NAME@Targets.cmake)

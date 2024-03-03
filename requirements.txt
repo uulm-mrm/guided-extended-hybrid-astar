@@ -1,6 +1,0 @@
-pybind11[global]
-pyyaml
-scipy
-termcolor
-imviz
-matplotlib

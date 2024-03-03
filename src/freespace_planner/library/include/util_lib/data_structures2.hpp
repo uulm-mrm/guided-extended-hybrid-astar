@@ -19,6 +19,7 @@ public:
     x_list_.reserve(nb_elements);
     y_list_.reserve(nb_elements);
     yaw_list_.reserve(nb_elements);
+    delta_list_.reserve(nb_elements);
     dir_list_.reserve(nb_elements);
     nb_elements_ = nb_elements;
   }
@@ -26,6 +27,7 @@ public:
   std::vector<double> x_list_;
   std::vector<double> y_list_;
   std::vector<double> yaw_list_;
+  std::vector<double> delta_list_;
   std::vector<int> dir_list_;
   size_t nb_elements_;
 
@@ -34,6 +36,7 @@ public:
     x_list_.reserve(nb_elements);
     y_list_.reserve(nb_elements);
     yaw_list_.reserve(nb_elements);
+    delta_list_.reserve(nb_elements);
     dir_list_.reserve(nb_elements);
   }
 };
@@ -90,8 +93,8 @@ public:
              std::vector<double> x_list_in,
              std::vector<double> y_list_in,
              std::vector<double> yaw_list_in,
+             std::vector<double> delta_list_in,
              std::vector<PATH_TYPE> types_in,
-             double steer_in,
              int64_t parent_index_in,
              double cost_in,
              double dist_in)
@@ -103,8 +106,8 @@ public:
     , x_list(std::move(x_list_in))
     , y_list(std::move(y_list_in))
     , yaw_list(std::move(yaw_list_in))
+    , delta_list(std::move(delta_list_in))
     , types(std::move(types_in))
-    , steer(steer_in)
     , parent_index(parent_index_in)
     , cost(cost_in)
     , dist(dist_in){};
@@ -133,8 +136,8 @@ public:
   std::vector<double> x_list;
   std::vector<double> y_list;
   std::vector<double> yaw_list;
+  std::vector<double> delta_list;
   std::vector<PATH_TYPE> types;
-  double steer{};
   int64_t parent_index{};
   double cost = -1;
   double dist = 0;
@@ -160,6 +163,7 @@ public:
   Path(std::vector<double> x_list_in,
        std::vector<double> y_list_in,
        std::vector<double> yaw_list_in,
+       std::vector<double> delta_list_in,
        std::vector<int> direction_list_in,
        double cost_in,
        int idx_analytic_in,
@@ -168,6 +172,7 @@ public:
     : x_list(std::move(x_list_in))
     , y_list(std::move(y_list_in))
     , yaw_list(std::move(yaw_list_in))
+    , delta_list(std::move(delta_list_in))
     , direction_list(std::move(direction_list_in))
     , cost(cost_in)
     , idx_analytic(idx_analytic_in)
@@ -177,16 +182,45 @@ public:
   std::vector<double> x_list;
   std::vector<double> y_list;
   std::vector<double> yaw_list;
+  std::vector<double> delta_list;
   std::vector<int> direction_list;
   double cost = 0;
   int idx_analytic = -1;
   std::vector<PATH_TYPE> types;
   bool is_emergency = false;
 
+  /// a method to multiply the path by a scalar
+  [[nodiscard]] Path operator*(const double val) const
+  {
+    Path path_copy = *this;
+    for (double& x : path_copy.x_list)
+    {
+      x *= val;
+    }
+    for (double& y : path_copy.y_list)
+    {
+      y *= val;
+    }
+    return path_copy;
+  }
+
   // to sort paths
   [[nodiscard]] bool operator<(const Path& other) const
   {
     return cost < other.cost;
+  }
+
+  [[nodiscard]] Path slice(int s_idx, int e_idx) const
+  {
+    return { { x_list.cbegin() + s_idx, x_list.cbegin() + e_idx + 1 },
+             { y_list.cbegin() + s_idx, y_list.cbegin() + e_idx + 1 },
+             { yaw_list.cbegin() + s_idx, yaw_list.cbegin() + e_idx + 1 },
+             { delta_list.cbegin() + s_idx, delta_list.cbegin() + e_idx + 1 },
+             { direction_list.cbegin() + s_idx, direction_list.cbegin() + e_idx + 1 },
+             cost,
+             idx_analytic,
+             { types.cbegin() + s_idx, types.cbegin() + e_idx + 1 },
+             is_emergency };
   }
 };
 

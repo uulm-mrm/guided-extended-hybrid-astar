@@ -13,19 +13,27 @@ import subprocess
 
 from path_planner_lib.state_machine import *
 from path_planner_lib import util
-from path_planner_lib.planning import Vehicle, AStar, HybridAStar, CollisionChecker, Cartographing, UtilCpp
+from path_planner_lib.planning import Vehicle, AStar, HybridAStar, CollisionChecker, Cartographing, UtilCpp, Smoother
 from path_planner_lib.planning import PoseDouble, PointDouble, PointInt
 from path_planner_lib.logger_setup import Logger
 from path_planner_lib.data_structures import GoalMsg, ActionObj, OccEnum, WayType
+
+cmap = matplotlib.cm.get_cmap('turbo')
 
 
 class Vis:
     def __init__(self):
 
+        # vis handling
+        self.t_last_vis: float = 0.0
+        self.delta_t_vis: float = 0.0
+        fps: float = 30.0
+        self.vis_period: float = 1 / fps
+
         self.initialized: bool = False
         self.ini_path = None
 
-        self.step_vals: ArrayLike = None
+        self.step_vals: Optional[ArrayLike] = None
         self.idx: int = 0
         self.prev_plan_idx: int = -1
         self.pause: bool = False
@@ -38,20 +46,20 @@ class Vis:
         self.car_driven_outlines_x: list = []
         self.car_driven_outlines_y: list = []
 
-        self.add_driven_outlines_x: list = []
-        self.add_driven_outlines_y: list = []
+        self.way_x: list = []
+        self.way_y: list = []
 
         # coordinates of search tree (only start and end to visualize faster)
         self.closed_x: list = []
         self.closed_y: list = []
 
-        self.follow_zoom: float = 3  # the higher, this value the further away is the view
+        self.follow_zoom: float = 4  # the higher, this value the further away is the view
         self.follow_vehicle: bool = True
 
         self.map_plot_size: tuple = (500, 500)
 
         self.show_patch: bool = True
-        self.show_internal_heuristics: bool = True
+        self.show_internal_heuristics: bool = False
         self.show_collision_checks: bool = False
         self.show_internal_states: bool = False
         self.show_path_details: bool = False
@@ -59,24 +67,14 @@ class Vis:
         self.show_tree: bool = True
         self.show_circles: bool = True
 
-        # Default visualization values. Can be changed from gui
-        self.auto_fit: bool = False
-        self.stop: bool = False
-
         self.show_file_dialog: bool = False
         self.add_driven_paths: list = []
-        self.driven_x: list = []
-        self.driven_y: list = []
-        self.ego_utm_global: Optional[PointDouble] = None
-        self.car_outline_x: list = []
-        self.car_outline_y: list = []
 
         self.allow_scrolling: bool = False
 
         self.state_history: list = []
-        self.mouse_pos: tuple = (0, 0)
+        self.mouse_pos: PointDouble = PointDouble(0, 0)
 
-        self.goal_pose: PoseDouble = PoseDouble(0, 0, 0)
         self.goal_pose_utm: PoseDouble = PoseDouble(0, 0, 0)
         self.goal_set: bool = False
         self.goal_message: Optional = None
@@ -92,6 +90,7 @@ class Vis:
         self.last_iterations = math.inf
 
         self.create_lane_graph: bool = False
+        self.create_geofence: bool = False
 
     def initialize(self):
         if not self.initialized:
@@ -117,44 +116,99 @@ class Vis:
             f'{path}'
         ]
 
+    def show_vehicle(self, plan):
+
+        veh_x, veh_y = self.get_vehicle_outline(plan.ego_utm)
+
+        track_width: float = plan.veh_config.width - 0.2
+
+        if plan.delta_ego_state is not None:
+            delta: float = plan.delta_ego_state
+        else:
+            delta: float = plan.delta_path
+
+        wheel_bounds = np.array([
+            (-0.4, -0.1, 1),
+            (0.4, -0.1, 1),
+            (0.4, 0.1, 1),
+            (-0.4, 0.1, 1),
+            (-0.4, -0.1, 1)
+        ])
+
+        trans = np.array([
+            [np.cos(plan.ego_utm.yaw), -np.sin(plan.ego_utm.yaw), plan.ego_utm.x],
+            [np.sin(plan.ego_utm.yaw), np.cos(plan.ego_utm.yaw), plan.ego_utm.y],
+            [0.0, 0.0, 1.0]
+        ])
+
+        rl_wheel_trans = np.array([
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, track_width/2.0],
+            [0.0, 0.0, 1.0]
+        ])
+
+        rr_wheel_trans = rl_wheel_trans.copy()
+        rr_wheel_trans[1, 2] -= track_width
+        fl_wheel_trans = np.array([
+            [np.cos(delta), -np.sin(delta), plan.veh_config.wb],
+            [np.sin(delta), np.cos(delta), track_width/2.0],
+            [0.0, 0.0, 1.0]
+        ])
+        fr_wheel_trans = fl_wheel_trans.copy()
+        fr_wheel_trans[1, 2] -= track_width
+
+        fl_wheel_trans = trans @ fl_wheel_trans
+        fr_wheel_trans = trans @ fr_wheel_trans
+        rl_wheel_trans = trans @ rl_wheel_trans
+        rr_wheel_trans = trans @ rr_wheel_trans
+
+        rl_wheel_bounds = wheel_bounds @ rl_wheel_trans.T
+        rr_wheel_bounds = wheel_bounds @ rr_wheel_trans.T
+        fl_wheel_bounds = wheel_bounds @ fl_wheel_trans.T
+        fr_wheel_bounds = wheel_bounds @ fr_wheel_trans.T
+
+        viz.plot(veh_x, veh_y,
+                 label="vehicle",
+                 line_weight=2.0,
+                 color="blue")
+
+        viz.plot(rr_wheel_bounds[:, 0], rr_wheel_bounds[:, 1],
+                 label="rr",
+                 line_weight=2.0,
+                 color="blue")
+
+        viz.plot(rl_wheel_bounds[:, 0], rl_wheel_bounds[:, 1],
+                 label="rl",
+                 line_weight=2.0,
+                 color="blue")
+
+        viz.plot(fr_wheel_bounds[:, 0], fr_wheel_bounds[:, 1],
+                 label="fr",
+                 line_weight=2.0,
+                 color="blue")
+
+        viz.plot(fl_wheel_bounds[:, 0], fl_wheel_bounds[:, 1],
+                 label="fl",
+                 line_weight=2.0,
+                 color="blue")
+
     @staticmethod
-    def get_vehicle_outline(x: float, y: float, yaw: float, transf: str = "utm", keep_pos: bool = False) \
-            -> tuple[list, list]:
+    def get_vehicle_outline(pose: PointDouble) -> tuple[list, list]:
 
-        vertices = Vehicle.getVehicleVertices()
-
-        vrx, vry = [point.x for point in vertices], [point.y for point in vertices]
-        vrx.append(vrx[0])
-        vry.append(vry[0])
-
-        point: PointDouble = PointDouble(x, y)
-        if transf == "gm":
-            if not keep_pos:
-                point = UtilCpp.utm2grid(point)
-
-            vrx, vry = UtilCpp.utm2grid([vrx, vry])
-
-        yaw_rot: float = -yaw
+        vrx, vry = [point.x for point in Vehicle.vis_vehicle_vertices_], [point.y for point in
+                                                                          Vehicle.vis_vehicle_vertices_]
+        yaw_rot: float = -pose.yaw
         rot = np.array([[math.cos(yaw_rot), -math.sin(yaw_rot)],
                         [math.sin(yaw_rot), math.cos(yaw_rot)]])
-        car_outline_x: list = []
-        car_outline_y: list = []
-        for rx, ry in zip(vrx, vry):
-            converted_xy = np.stack([rx, ry]).T @ rot
-            car_outline_x.append(converted_xy[0] + point.x)
-            car_outline_y.append(converted_xy[1] + point.y)
 
-        return car_outline_x, car_outline_y
+        converted_xy = np.stack([vrx, vry]).T @ rot
+
+        return converted_xy[:, 0] + pose.x, converted_xy[:, 1] + pose.y
 
     def set_xaxis_settings4states(self, plan):
         viz.setup_axis(viz.Axis.X1, "steps")
-        if self.auto_fit:
-            if not self.stop:
-                viz.setup_axis(viz.Axis.X1, "steps", flags=viz.PlotAxisFlags.AUTO_FIT)
-        else:
-            if not self.stop:
-                viz.setup_axis_limits(viz.Axis.X1, -plan.history_len, 0,
-                                      flags=viz.PlotCond.ALWAYS)
+        viz.setup_axis_limits(viz.Axis.X1, -plan.history_len, 0,
+                              flags=viz.PlotCond.ALWAYS)
 
     def enable_goal_change(self):
         viz.push_override_id(viz.get_plot_id())
@@ -163,9 +217,7 @@ class Vis:
             self.map_context_menu_open = True
 
             if viz.menu_item("Set Goal"):
-                self.goal_pose = PoseDouble(self.mouse_pos[0], self.mouse_pos[1],
-                                            self.goal_pose.yaw)
-                self.goal_pose_utm = UtilCpp.grid2utm(self.goal_pose)
+                self.goal_pose_utm = PoseDouble(self.mouse_pos.x, self.mouse_pos.y, self.goal_pose_utm.yaw)
                 self.goal_set = True
                 self.map_context_menu_open = False
 
@@ -189,42 +241,49 @@ class Vis:
 
     def plot_selected_and_current_goal(self, plan):
         # Plot selected goal
-        goal_outline_x, goal_outline_y = self.get_vehicle_outline(self.goal_pose.x, self.goal_pose.y,
-                                                                  self.goal_pose.yaw,
-                                                                  transf="gm", keep_pos=True)
-        viz.plot(np.array(goal_outline_x), np.array(goal_outline_y), line_weight=3, fmt="-", color="orange")
+        goal_outline_x, goal_outline_y = self.get_vehicle_outline(self.goal_pose_utm)
+        viz.plot(goal_outline_x, goal_outline_y, line_weight=3, fmt="-", color="orange")
 
         # Plot selected goal
         if plan.goal_utm is not None:
-            goal_pose = UtilCpp.utm2grid(plan.goal_utm)
-            goal_outline_x, goal_outline_y = self.get_vehicle_outline(goal_pose.x, goal_pose.y, plan.goal_utm.yaw,
-                                                                      transf="gm", keep_pos=True)
-            viz.plot(np.array(goal_outline_x), np.array(goal_outline_y), line_weight=3, fmt="-", color="red",
+            goal_outline_x, goal_outline_y = self.get_vehicle_outline(plan.goal_utm)
+            viz.plot(goal_outline_x, goal_outline_y, line_weight=3, fmt="-", color="red",
                      label="goal")
 
-    def plot_circles(self, plan):
+    def plot_circles(self, plan, only_disks: bool = False):
+        """
+        Plot circles with radi of the dilation disk
+        :param plan:
+        :return:
+        """
+        points = CollisionChecker.returnDiskPositions(plan.ego_utm.yaw)
 
-        ego_pose = UtilCpp.patch_utm2global_gm(plan.ego_utm_patch)
-        points = CollisionChecker.returnDiskPositions(plan.ego_utm_patch.yaw)
-        viz.plot([p.x + ego_pose.x for p in points], [p.y + ego_pose.y for p in points], marker_size=2.0,
+        viz.plot([p.x + plan.ego_utm.x for p in points], [p.y + plan.ego_utm.y for p in points], marker_size=2.0,
                  fmt=".o", color="red")
-        for p in points:
-            viz.plot_circle([p.x + ego_pose.x, p.y + ego_pose.y], CollisionChecker.disk_r_c_, color="red")
 
-        if self.goal_pose is not None:
-            points = CollisionChecker.returnDiskPositions(self.goal_pose.yaw)
-            viz.plot([p.x + self.goal_pose.x for p in points], [p.y + self.goal_pose.y for p in points],
-                     marker_size=2.0, fmt=".o", color="red")
+        if not only_disks:
             for p in points:
-                viz.plot_circle([p.x + self.goal_pose.x, p.y + self.goal_pose.y], CollisionChecker.disk_r_c_,
-                                color="red")
+                viz.plot_circle([p.x + plan.ego_utm.x, p.y + plan.ego_utm.y], CollisionChecker.disk_r_, color="red")
+
+        if self.goal_pose_utm is not None:
+            points = CollisionChecker.returnDiskPositions(self.goal_pose_utm.yaw)
+
+            viz.plot([p.x + self.goal_pose_utm.x for p in points], [p.y + self.goal_pose_utm.y for p in points],
+                     marker_size=2.0, fmt=".o", color="red")
+
+            if not only_disks:
+                for p in points:
+                    viz.plot_circle([p.x + self.goal_pose_utm.x, p.y + self.goal_pose_utm.y], CollisionChecker.disk_r_,
+                                    color="red")
 
     def plot_search_tree(self):
-        closed_coordinates = HybridAStar.getConnectedClosedNodes()
+        """
+        Plot visited/closed nodes of the hybrid a star search
+        :return:
+        """
 
-        if len(closed_coordinates[0]) != 0:
-            x_coords, y_coords = closed_coordinates
-            self.closed_x, self.closed_y = UtilCpp.patch_utm2global_gm(x_coords, y_coords)
+        if len(HybridAStar.connected_closed_nodes_[0]) != 0:
+            self.closed_x, self.closed_y = HybridAStar.connected_closed_nodes_
 
         if self.closed_x:
             viz.plot(self.closed_x, self.closed_y, marker_size=1, fmt="-", color="red", label="closed nodes",
@@ -233,7 +292,6 @@ class Vis:
     def enable_and_follow_vehicle(self, plan):
         self.enable_follow_veh()
         if self.follow_vehicle:
-            ego_gm_global = UtilCpp.utm2grid(self.ego_utm_global)
 
             if viz.is_window_hovered():
                 for se in viz.get_scroll_events():
@@ -245,13 +303,13 @@ class Vis:
                 if not (viz.get_mouse_drag_delta() == 0.0).all():
                     self.follow_vehicle = False
 
-            d = 100 * self.follow_zoom
+            d = 10 * self.follow_zoom
 
             aspect_ratio = self.map_plot_size[1] / self.map_plot_size[0]
-            plot_x_min = ego_gm_global.x - d
-            plot_x_max = ego_gm_global.x + d
-            plot_y_min = ego_gm_global.y - d * aspect_ratio
-            plot_y_max = ego_gm_global.y + d * aspect_ratio
+            plot_x_min = plan.ego_utm.x - d
+            plot_x_max = plan.ego_utm.x + d
+            plot_y_min = plan.ego_utm.y - d * aspect_ratio
+            plot_y_max = plan.ego_utm.y + d * aspect_ratio
 
             viz.setup_axis_limits(viz.Axis.X1, plot_x_min, plot_x_max, flags=viz.PlotCond.ALWAYS)
             viz.setup_axis_limits(viz.Axis.Y1, plot_y_min, plot_y_max, flags=viz.PlotCond.ALWAYS)
@@ -280,8 +338,8 @@ class Vis:
 
                 if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
 
-                    viz.setup_axis(viz.Axis.X1, "x")
-                    viz.setup_axis(viz.Axis.Y1, "y")
+                    viz.setup_axis(viz.Axis.X1, "x in m")
+                    viz.setup_axis(viz.Axis.Y1, "y in m")
 
                     self.enable_and_follow_vehicle(plan)
 
@@ -289,48 +347,39 @@ class Vis:
                         viz.hard_cancel_plot_selection()
 
                     if not self.map_context_menu_open:
-                        self.mouse_pos = viz.get_plot_mouse_pos()
+                        pos = viz.get_plot_mouse_pos()
+                        self.mouse_pos = PointDouble(pos[0], pos[1])
 
                     patch_safety = CollisionChecker.patch_safety_arr_.getNumpyArr()
-
-                    offset = UtilCpp.utm2grid(plan.patch_info.origin_utm)
-                    viz.plot_image("Grid Map", 1 - (patch_safety / 2),
+                    offset = plan.patch_info.origin_utm
+                    viz.plot_image("Dilated patch",  1 - (patch_safety / 2),
                                    x=offset.x,
                                    y=offset.y,
+                                   width=plan.patch_info.dim_utm,
+                                   height=plan.patch_info.dim_utm,
                                    uv0=(0, 1), uv1=(1, 0), interpolate=False)
+
                     self.show_pixel_value(patch_safety, offset)
-
-                    ego_pose = UtilCpp.patch_utm2global_gm(plan.ego_utm_patch)
-                    points = CollisionChecker.returnDiskPositions(plan.ego_utm_patch.yaw)
-                    viz.plot([p.x + ego_pose.x for p in points], [p.y + ego_pose.y for p in points], marker_size=2.0,
-                             fmt=".o", color="red")
-
-                    if self.goal_pose is not None:
-                        points = CollisionChecker.returnDiskPositions(self.goal_pose.yaw)
-                        viz.plot([p.x + self.goal_pose.x for p in points], [p.y + self.goal_pose.y for p in points],
-                                 marker_size=2.0, fmt=".o", color="red")
+                    self.plot_circles(plan, only_disks=True)
 
                     if plan.path is not None:
                         if plan.path.x_list:
-                            # Cast to global gm coordinates
-                            path_x, path_y = UtilCpp.patch_utm2global_gm(plan.path.x_list, plan.path.y_list)
+                            viz.plot(plan.path_utm.x_list, plan.path_utm.y_list, line_weight=2, color="blue", fmt="-o", label="planned path")
 
-                            viz.plot(path_x, path_y, line_weight=2, color="blue", fmt="-o", label="planned path")
-
-                    viz.plot(self.driven_x, self.driven_y, line_weight=2, marker_size=1.0, color="black",
+                    viz.plot(plan.driven_path.x_list, plan.driven_path.y_list, line_weight=2, marker_size=1.0,
+                             color="black",
                              fmt="-",
                              label="driven path")
-                    viz.plot(self.car_outline_x, self.car_outline_y, line_weight=2, color="blue", fmt="-",
-                             label="vehicle")
+
+                    self.show_vehicle(plan)
 
                     self.plot_selected_and_current_goal(plan)
                     self.enable_goal_change()
 
                     viz.end_plot()
-
             viz.end_window()
 
-    def vis_collision_checks(self, minipatches, plan):
+    def vis_collision_checks(self, plan):
         if self.show_collision_checks:
             window_title = "Collision Checks"
             if viz.begin_window(
@@ -342,8 +391,8 @@ class Vis:
                 self.show_collision_checks = viz.get_window_open()
 
                 if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):  # | viz.PlotFlags.NO_LEGEND
-                    viz.setup_axis(viz.Axis.X1, "x")
-                    viz.setup_axis(viz.Axis.Y1, "y")
+                    viz.setup_axis(viz.Axis.X1, "x in m")
+                    viz.setup_axis(viz.Axis.Y1, "y in m")
 
                     self.enable_and_follow_vehicle(plan)
 
@@ -351,46 +400,14 @@ class Vis:
                         viz.hard_cancel_plot_selection()
 
                     patch = CollisionChecker.patch_arr_.getNumpyArr()
-                    offset = UtilCpp.utm2grid(plan.patch_info.origin_utm)
+                    offset = plan.patch_info.origin_utm
                     viz.plot_image("Patch", (OccEnum.OCC - patch),
                                    x=offset.x,
                                    y=offset.y,
+                                   width=plan.patch_info.dim_utm,
+                                   height=plan.patch_info.dim_utm,
                                    uv0=(0, 1), uv1=(1, 0), interpolate=False)
                     self.show_pixel_value(patch, offset)
-
-                    # for path in self.generated_paths:
-                    #     if path is not None:
-                    #         path_x, path_y = UtilCpp.utm2global_gm(path.x_list, path.y_list)
-                    #         viz.plot(path_x, path_y, line_weight=2, color="black", fmt="--")
-
-                    # add additional paths
-                    colors = ["red", "green", "yellow"]
-                    if self.idx % 100 == 0:
-                        for path_idx, (add_path, filename) in enumerate(self.add_driven_paths):
-                            if add_path is not None:
-                                self.add_driven_outlines_x = []
-                                self.add_driven_outlines_y = []
-
-                                x_list = []
-                                y_list = []
-                                for i, (x, y, yaw) in enumerate(zip(add_path.x_list, add_path.y_list,
-                                                                    add_path.yaw_list)):
-                                    if i % 4 != 0:
-                                        continue
-                                    car_outline_x, car_outline_y = self.get_vehicle_outline(x, y, yaw, transf="gm")
-                                    x_list.append(car_outline_x)
-                                    y_list.append(car_outline_y)
-
-                                self.add_driven_outlines_x.append(x_list)
-                                self.add_driven_outlines_y.append(y_list)
-
-                    # plot additional paths
-                    if self.add_driven_paths:
-                        for i, (x_list, y_list) in enumerate(
-                                zip(self.add_driven_outlines_x, self.add_driven_outlines_y)):
-                            for outline_x, outline_y in zip(x_list, y_list):
-                                viz.plot(outline_x, outline_y, line_weight=2, color=colors[i % len(colors)], fmt="-",
-                                         label="")
 
                     # on len change
                     if len(plan.driven_path.x_list) > len(self.car_driven_outlines_x) * 6:
@@ -400,17 +417,13 @@ class Vis:
                                                             plan.driven_path.yaw_list)):
                             if i % 4 != 0:
                                 continue
-                            car_outline_x, car_outline_y = self.get_vehicle_outline(x, y, yaw, transf="gm")
+                            car_outline_x, car_outline_y = self.get_vehicle_outline(PoseDouble(x, y, yaw))
                             self.car_driven_outlines_x.append(car_outline_x)
                             self.car_driven_outlines_y.append(car_outline_y)
 
                     for i, (outline_x, outline_y) in enumerate(
                             zip(self.car_driven_outlines_x, self.car_driven_outlines_y)):
                         viz.plot(outline_x, outline_y, line_weight=2, color="blue", fmt="-", label="vehicle")
-
-                    # viz.plot(self.driven_x, self.driven_y, line_weight=3, marker_size=1, color="black",
-                    #          fmt="-",
-                    #          label="driven path")
 
                     self.plot_selected_and_current_goal(plan)
                     self.enable_goal_change()
@@ -433,8 +446,8 @@ class Vis:
 
                 if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
 
-                    viz.setup_axis(viz.Axis.X1, "x in grid cells")
-                    viz.setup_axis(viz.Axis.Y1, "y in grid cells")
+                    viz.setup_axis(viz.Axis.X1, "x in m")
+                    viz.setup_axis(viz.Axis.Y1, "y in m")
 
                     self.enable_and_follow_vehicle(plan)
 
@@ -442,29 +455,36 @@ class Vis:
                         viz.hard_cancel_plot_selection()
 
                     if not self.map_context_menu_open:
-                        self.mouse_pos = viz.get_plot_mouse_pos()
+                        pos = viz.get_plot_mouse_pos()
+                        self.mouse_pos = PointDouble(pos[0], pos[1])
 
                     patch = CollisionChecker.patch_arr_.getNumpyArr()
-                    offset = UtilCpp.utm2grid(plan.patch_info.origin_utm)
-                    viz.plot_image("Patch", (OccEnum.OCC - patch),
+                    offset = plan.patch_info.origin_utm
+                    viz.plot_image("Patch", OccEnum.OCC - patch,
                                    x=offset.x,
                                    y=offset.y,
+                                   width=plan.patch_info.dim_utm,
+                                   height=plan.patch_info.dim_utm,
                                    uv0=(0, 1), uv1=(1, 0), interpolate=False)
                     self.show_pixel_value(patch, offset)
 
+                    if self.show_tree:
+                        self.plot_search_tree()
+
                     if self.create_lane_graph:
                         if self.mouse_pos is not None:
-                            pos = PointDouble(self.mouse_pos[0], self.mouse_pos[1])
-                            pos = UtilCpp.grid2utm(pos)
-
                             if viz.is_window_hovered():
                                 if viz.is_mouse_clicked():
-                                    HybridAStar.lane_graph_.addPoint(pos)
+                                    HybridAStar.lane_graph_.addPoint(self.mouse_pos)
+
+                    if self.create_geofence:
+                        if viz.is_window_hovered():
+                            if viz.is_mouse_clicked():
+                                AStar.restr_geofence_.addPoint(self.mouse_pos)
 
                     # show edges of lane graph
                     for i_edge, edge in enumerate(HybridAStar.lane_graph_.edges_):
-                        points = [UtilCpp.utm2grid(node_opt.point_utm) for node_opt in edge if node_opt]
-
+                        points = [node_opt.point_utm for node_opt in edge if node_opt]
                         xs = [point.x for point in points]
                         ys = [point.y for point in points]
 
@@ -474,45 +494,43 @@ class Vis:
 
                     self.plot_selected_and_current_goal(plan)
 
-                    ego_pose = UtilCpp.patch_utm2global_gm(plan.ego_utm_patch)
-                    viz.plot([ego_pose.x], [ego_pose.y], fmt="o", color="blue")
+                    viz.plot([plan.ego_utm.x], [plan.ego_utm.y], fmt="o", color="blue")
 
                     if self.show_circles:
                         self.plot_circles(plan)
 
-                    if self.show_tree:
-                        self.plot_search_tree()
-
                     # Get astar path
-                    if plan.WAYPOINT_TYPE != WayType.NONE:
-                        if plan.astar_path:
-                            way_x, way_y = UtilCpp.astar2utm([plan.astar_path[0], plan.astar_path[1]])
-                            # way_y = TF.astar2con(plan.astar_path[1])
-                            # Cast to global utm coordinates
-                            way_x, way_y = UtilCpp.patch_utm2global_gm(way_x, way_y)
+                    if plan.config.WAYPOINT_TYPE != WayType.NONE:
+                        if self.way_x:
+                            viz.plot(self.way_x, self.way_y, marker_size=2, color="blue", fmt="-o", label="A* path")
 
-                            viz.plot(way_x, way_y, marker_size=2, color="black", fmt="-o", label="A* path")
-
-                    if plan.path is not None:
-                        if plan.path.x_list:
-                            # Cast to global utm coordinates
-                            path_x, path_y = UtilCpp.patch_utm2global_gm(plan.path.x_list, plan.path.y_list)
-
-                            if len(path_x) == 0:
-                                return
-
-                            viz.plot(path_x, path_y, line_weight=2, color="blue", marker_size=2, fmt="-o", label="path")
+                    if plan.path_utm is not None:
+                        if plan.path_utm.x_list:
+                            viz.plot(plan.path_utm.x_list, plan.path_utm.y_list, line_weight=2, color="blue",
+                                     marker_size=2, fmt="-o", label="path")
 
                     if plan.coll_point is not None:
-                        coll_point = UtilCpp.patch_utm2global_gm(plan.coll_point)
-                        viz.plot([coll_point.x], [coll_point.y], marker_size=5, color="red", fmt=".x")
+                        coll_point = UtilCpp.patch_utm2utm(plan.coll_point)
+                        viz.plot([coll_point.x], [coll_point.y], marker_size=10, color="red", fmt=".x")
                         # self.pause = True
 
-                    viz.plot(self.driven_x, self.driven_y, line_weight=2, color="black", marker_size=2, fmt="-o",
+                    viz.plot(plan.driven_path.x_list, plan.driven_path.y_list, line_weight=2, color="gray",
+                             marker_size=2, fmt="-o",
                              label="driven path")
 
-                    viz.plot(self.car_outline_x, self.car_outline_y, line_weight=3, color="blue",
-                             fmt="-", label="vehicle")
+                    self.show_vehicle(plan)
+
+                    x = [vertice.x for vertice in AStar.restr_geofence_.vertices]
+                    if x:
+                        x.append(x[0])
+                    y = [vertice.y for vertice in AStar.restr_geofence_.vertices]
+                    if y:
+                        y.append(y[0])
+                    viz.plot(x, y, line_weight=3, color="red", fmt="-", label="restr_geofence_")
+
+                    if plan.plan_start_node is not None:
+                        x, y = UtilCpp.patch_utm2utm([plan.plan_start_node.x_list[0]], [plan.plan_start_node.y_list[0]])
+                        viz.plot(x, y, line_weight=3, color="red", fmt="o", label="plan start node")
 
                     # Create video
                     if self.record:
@@ -526,6 +544,10 @@ class Vis:
     def do_record(self, plan):
         if plan.sim_idx > self.prev_plan_idx and plan.sim_idx > 5:
 
+            # if not self.goal_reached and plan.overall_state.ego_s == EgoOnPathState.GOAL:
+            #     self.goal_reached = True
+            #     self.last_iterations = 50
+
             if self.last_iterations != math.inf:
                 self.last_iterations -= 1
 
@@ -538,7 +560,7 @@ class Vis:
                     self.frame_height = int(self.frame_height)
                 frame = viz.get_pixels(x, y, self.frame_width, self.frame_height)[:, :, :3]
 
-                if plan.WAYPOINT_TYPE == WayType.NONE:
+                if plan.config.WAYPOINT_TYPE == WayType.NONE:
                     pad_dim = 10
                     pad = np.zeros((self.frame_height, pad_dim, 3), dtype=np.uint8)
                     frame = np.hstack((frame, pad))
@@ -547,33 +569,134 @@ class Vis:
                 if not self.rec_process_started:
                     self.rec_process_started = True
                     stamp = datetime.now().strftime("%d%m%Y_%H%M%S")
-                    scenario_name = "scenario_" + str(stamp)
+                    if plan.config.WAYPOINT_TYPE == 1:
+                        scenario_name = "neu-ulm-standard-unknown_" + str(stamp)
+                    else:
+                        scenario_name = "neu-ulm-guided-unknown_" + str(stamp)
                     self.proc = subprocess.Popen(
                         self.ffmpeg_cmd(self.frame_width,
                                         self.frame_height,
-                                        f"/opt/guided-extended-hybrid-astar/recorded_videos/{scenario_name}.mp4"),
+                                        f"/home/schumann/mrm/projects/sandboxes/aduulm_sandbox/src/freespace_planner/videos/{scenario_name}.mp4"),
                         stdin=subprocess.PIPE,
                         stdout=None,
                         stderr=None)
                 self.proc.stdin.write(frame.tobytes())
 
-    @staticmethod
-    def show_pixel_value(arr, offset=PointDouble(0, 0)):
+    def show_pixel_value(self, arr, offset=PointDouble(0, 0), kind: str="gm"):
         mouse_pos = viz.get_plot_mouse_pos()
-        # correct mouse pos
-        mouse_pos[0] -= offset.x
-        mouse_pos[1] -= offset.y
+        mouse_pos = PointDouble(mouse_pos[0], mouse_pos[1])
+
+        # Shift mouse pos to arr
+        mouse_pos.x -= offset.x
+        mouse_pos.y -= offset.y
+        if kind == "gm":
+            mouse_pos = UtilCpp.utm2grid(mouse_pos)
+        elif kind == "astar":
+            mouse_pos = UtilCpp.utm2astar(mouse_pos)
+        else:
+            self.logger.log_error("unknown kind to show pixel value")
+            return
 
         val = None
         if mouse_pos is not None:
-            if 0 <= mouse_pos[0] < arr.shape[0] and 0 <= mouse_pos[1] < arr.shape[1]:
-                y_ind = max(int(np.floor(mouse_pos[1])), 0)
-                x_ind = max(int(np.floor(mouse_pos[0])), 0)
+            if 0 <= mouse_pos.x < arr.shape[0] and 0 <= mouse_pos.y < arr.shape[1]:
+                y_ind = max(int(np.floor(mouse_pos.y)), 0)
+                x_ind = max(int(np.floor(mouse_pos.x)), 0)
                 val = arr[y_ind, x_ind]
         viz.text("Pixel value: " + str(val))
 
     def vis_internal_heuristics(self, plan):
         if self.show_internal_heuristics:
+
+            # # heuristic Map
+            # window_title = "hprox distance map"
+            # if viz.begin_window(
+            #         window_title,
+            #         # size=(400, 400),
+            #         # position=(700, 400),
+            #         resize=True,
+            # ):
+            #     self.show_internal_heuristics = viz.get_window_open()
+            #
+            #     if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
+            #         viz.setup_axis(viz.Axis.X1, "x in m")
+            #         viz.setup_axis(viz.Axis.Y1, "y in m")
+            #
+            #         if viz.plot_selection_ended():
+            #             viz.hard_cancel_plot_selection()
+            #
+            #         dist_map = AStar.hprox_dist_.getNumpyArr()
+            #         offset = plan.patch_info.origin_utm
+            #         self.show_pixel_value(dist_map, offset, kind="astar")
+            #         offset = plan.patch_info.origin_utm
+            #         viz.plot_image(window_title, 1-dist_map,
+            #                        x=offset.x,
+            #                        y=offset.y,
+            #                        width=190 * HybridAStar.ASTAR_RES,
+            #                        height=190 * HybridAStar.ASTAR_RES,
+            #                        uv0=(0, 1), uv1=(1, 0), interpolate=False)
+            #         viz.end_plot()
+            # viz.end_window()
+
+            # heuristic Map
+            window_title = "voronoi distance map"
+            if viz.begin_window(
+                    window_title,
+                    # size=(400, 400),
+                    # position=(700, 400),
+                    resize=True,
+            ):
+                self.show_internal_heuristics = viz.get_window_open()
+
+                if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
+                    viz.setup_axis(viz.Axis.X1, "x in m")
+                    viz.setup_axis(viz.Axis.Y1, "y in m")
+
+                    if viz.plot_selection_ended():
+                        viz.hard_cancel_plot_selection()
+
+                    dist_map = AStar.voronoi_dist_.getNumpyArr()
+                    offset = plan.patch_info.origin_utm
+                    self.show_pixel_value(dist_map, offset, kind="astar")
+                    offset = plan.patch_info.origin_utm
+                    viz.plot_image(window_title, dist_map/10,
+                                   x=offset.x,
+                                   y=offset.y,
+                                   width=190 * HybridAStar.ASTAR_RES,
+                                   height=190 * HybridAStar.ASTAR_RES,
+                                   uv0=(0, 1), uv1=(1, 0), interpolate=False)
+                    viz.end_plot()
+            viz.end_window()
+
+            # heuristic Map
+            window_title = "obstacle distance map"
+            if viz.begin_window(
+                    window_title,
+                    # size=(400, 400),
+                    # position=(700, 400),
+                    resize=True,
+            ):
+                self.show_internal_heuristics = viz.get_window_open()
+
+                if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
+                    viz.setup_axis(viz.Axis.X1, "x in m")
+                    viz.setup_axis(viz.Axis.Y1, "y in m")
+
+                    if viz.plot_selection_ended():
+                        viz.hard_cancel_plot_selection()
+
+                    dist_map = AStar.obstacle_dist_.getNumpyArr()
+                    offset = plan.patch_info.origin_utm
+                    self.show_pixel_value(dist_map, offset, kind="astar")
+                    offset = plan.patch_info.origin_utm
+                    viz.plot_image(window_title, dist_map/10,
+                                   x=offset.x,
+                                   y=offset.y,
+                                   width=190 * HybridAStar.ASTAR_RES,
+                                   height=190 * HybridAStar.ASTAR_RES,
+                                   uv0=(0, 1), uv1=(1, 0), interpolate=False)
+                    viz.end_plot()
+            viz.end_window()
 
             # heuristic Map
             window_title = "Heuristic map"
@@ -586,8 +709,8 @@ class Vis:
                 self.show_internal_heuristics = viz.get_window_open()
 
                 if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
-                    viz.setup_axis(viz.Axis.X1, "x in planning cells")
-                    viz.setup_axis(viz.Axis.Y1, "y in planning cells")
+                    viz.setup_axis(viz.Axis.X1, "x in m")
+                    viz.setup_axis(viz.Axis.Y1, "y in m")
 
                     if viz.plot_selection_ended():
                         viz.hard_cancel_plot_selection()
@@ -597,26 +720,29 @@ class Vis:
                     heur_map_gray = -np.ones((HybridAStar.astar_dim_, HybridAStar.astar_dim_), dtype=np.float64)
 
                     # TODO (Schumann) do all this in cpp
-                    h_dp_global = AStar.getDistanceHeuristic(False)
-                    # self.logger.log_debug("Number of visited nodes", len(h_dp_global))
-                    if h_dp_global is not None:
-                        for obj in h_dp_global:
+                    if AStar.closed_set_guidance_ is not None:
+                        for obj in AStar.closed_set_guidance_:
                             el = obj[1]
-                            heur_map_gray[el.pos.y, el.pos.x] = el.cost_
-
-                    # normalise
+                            heur_map_gray[el.pos.y, el.pos.x] = el.cost_dist_
+                    # normalise and color code
                     max_val = np.max(heur_map_gray)
                     heur_map_gray[heur_map_gray == -1] = max_val
                     heur_map_gray_norm = heur_map_gray / max_val
                     heur_map_color = cmap(heur_map_gray_norm)[:, :, 0:3]
 
-                    self.show_pixel_value(heur_map_gray)
-                    viz.plot_image(window_title, heur_map_color, uv0=(0, 1), uv1=(1, 0), interpolate=False)
-                    if plan.astar_path:
-                        viz.plot(plan.astar_path[0], plan.astar_path[1], marker_size=2, color="black", fmt="-o")
+                    offset = plan.patch_info.origin_utm
+                    self.show_pixel_value(heur_map_gray, offset, kind="astar")
+                    viz.plot_image(window_title, heur_map_color,
+                                   x=offset.x,
+                                   y=offset.y,
+                                   width=plan.patch_info.dim_utm,
+                                   height=plan.patch_info.dim_utm,
+                                   uv0=(0, 1), uv1=(1, 0), interpolate=False)
+
+                    if self.way_x:
+                        viz.plot(self.way_x, self.way_y, marker_size=2, color="blue", fmt="-o", label="A* path")
 
                     viz.end_plot()
-
             viz.end_window()
 
             # Motion res Map
@@ -630,10 +756,8 @@ class Vis:
                 self.show_internal_heuristics = viz.get_window_open()
 
                 if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
-                    viz.setup_axis(viz.Axis.X1, "x in planning cells")
-                    viz.setup_axis(viz.Axis.Y1, "y in planning cells")
-                    viz.setup_axis_limits(viz.Axis.X1, 0, HybridAStar.astar_dim_, flags=viz.PlotCond.ONCE)
-                    viz.setup_axis_limits(viz.Axis.Y1, 0, HybridAStar.astar_dim_, flags=viz.PlotCond.ONCE)
+                    viz.setup_axis(viz.Axis.X1, "x m")
+                    viz.setup_axis(viz.Axis.Y1, "y m")
 
                     if viz.plot_selection_ended():
                         viz.hard_cancel_plot_selection()
@@ -641,14 +765,19 @@ class Vis:
                     motion_res_map = AStar.motion_res_map_.getNumpyArr()
 
                     if motion_res_map is not None:
-                        self.show_pixel_value(motion_res_map)
-                        viz.plot_image(window_title, motion_res_map, uv0=(0, 1), uv1=(1, 0), interpolate=False)
+                        offset = plan.patch_info.origin_utm
+                        self.show_pixel_value(motion_res_map, offset, kind="astar")
+                        viz.plot_image(window_title, motion_res_map,
+                                       x=offset.x,
+                                       y=offset.y,
+                                       width=plan.patch_info.dim_utm,
+                                       height=plan.patch_info.dim_utm,
+                                       uv0=(0, 1), uv1=(1, 0), interpolate=False)
 
-                    if plan.astar_path:
-                        viz.plot(plan.astar_path[0], plan.astar_path[1], marker_size=2, color="blue", fmt="-o")
+                    if self.way_x:
+                        viz.plot(self.way_x, self.way_y, marker_size=2, color="blue", fmt="-o", label="A* path")
 
                     viz.end_plot()
-
             viz.end_window()
 
             # Motion res Map
@@ -662,10 +791,8 @@ class Vis:
                 self.show_internal_heuristics = viz.get_window_open()
 
                 if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
-                    viz.setup_axis(viz.Axis.X1, "x in planning cells")
-                    viz.setup_axis(viz.Axis.Y1, "y in planning cells")
-                    viz.setup_axis_limits(viz.Axis.X1, 0, HybridAStar.astar_dim_, flags=viz.PlotCond.ONCE)
-                    viz.setup_axis_limits(viz.Axis.Y1, 0, HybridAStar.astar_dim_, flags=viz.PlotCond.ONCE)
+                    viz.setup_axis(viz.Axis.X1, "x in m")
+                    viz.setup_axis(viz.Axis.Y1, "y in m")
 
                     if viz.plot_selection_ended():
                         viz.hard_cancel_plot_selection()
@@ -673,45 +800,19 @@ class Vis:
                     movement_cost_map = AStar.movement_cost_map_.getNumpyArr()
 
                     if movement_cost_map is not None:
-                        self.show_pixel_value(movement_cost_map)
-                        viz.plot_image(window_title, movement_cost_map / 5, uv0=(0, 1), uv1=(1, 0), interpolate=False)
+                        offset = plan.patch_info.origin_utm
+                        self.show_pixel_value(movement_cost_map, offset, kind="astar")
+                        viz.plot_image(window_title, movement_cost_map / 5,
+                                       x=offset.x,
+                                       y=offset.y,
+                                       width=plan.patch_info.dim_utm,
+                                       height=plan.patch_info.dim_utm,
+                                       uv0=(0, 1), uv1=(1, 0), interpolate=False)
 
-                    if plan.astar_path:
-                        viz.plot(plan.astar_path[0], plan.astar_path[1], marker_size=2, color="blue", fmt="-o")
-
-                    viz.end_plot()
-
-            viz.end_window()
-
-            # Proximity Map
-            window_title = "Proximity map"
-            if viz.begin_window(
-                    window_title,
-                    # size=(400, 400),
-                    # position=(1100, 400),
-                    resize=True,
-            ):
-                self.show_internal_heuristics = viz.get_window_open()
-
-                if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
-                    viz.setup_axis(viz.Axis.X1, "x in planning cells")
-                    viz.setup_axis(viz.Axis.Y1, "y in planning cells")
-                    viz.setup_axis_limits(viz.Axis.X1, 0, HybridAStar.astar_dim_, flags=viz.PlotCond.ONCE)
-                    viz.setup_axis_limits(viz.Axis.Y1, 0, HybridAStar.astar_dim_, flags=viz.PlotCond.ONCE)
-
-                    if viz.plot_selection_ended():
-                        viz.hard_cancel_plot_selection()
-
-                    h_prox = AStar.h_prox_arr_.getNumpyArr()
-                    if h_prox is not None:
-                        viz.plot_image(window_title, 1 - h_prox, uv0=(0, 1), uv1=(1, 0), interpolate=False)
-                        self.show_pixel_value(h_prox)
-
-                    if plan.astar_path:
-                        viz.plot(plan.astar_path[0], plan.astar_path[1], line_weight=3, color="blue", fmt="-o")
+                    if self.way_x:
+                        viz.plot(self.way_x, self.way_y, marker_size=2, color="blue", fmt="-o", label="A* path")
 
                     viz.end_plot()
-
             viz.end_window()
 
             # Planning Map
@@ -725,27 +826,60 @@ class Vis:
                 self.show_internal_heuristics = viz.get_window_open()
 
                 if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
-                    viz.setup_axis(viz.Axis.X1, "x in planning cells")
-                    viz.setup_axis(viz.Axis.Y1, "y in planning cells")
-                    viz.setup_axis_limits(viz.Axis.X1, 0, HybridAStar.astar_dim_, flags=viz.PlotCond.ONCE)
-                    viz.setup_axis_limits(viz.Axis.Y1, 0, HybridAStar.astar_dim_, flags=viz.PlotCond.ONCE)
+                    viz.setup_axis(viz.Axis.X1, "x in m")
+                    viz.setup_axis(viz.Axis.Y1, "y in m")
 
                     if viz.plot_selection_ended():
                         viz.hard_cancel_plot_selection()
 
                     astar_grid = AStar.astar_grid_.getNumpyArr()
-                    viz.plot_image(window_title, 1 - astar_grid / 2, uv0=(0, 1), uv1=(1, 0), interpolate=False)
-                    self.show_pixel_value(astar_grid)
+                    offset = plan.patch_info.origin_utm
+                    self.show_pixel_value(astar_grid, offset, kind="astar")
+                    viz.plot_image(window_title, 1 - astar_grid / 2,
+                                   x=offset.x,
+                                   y=offset.y,
+                                   width=plan.patch_info.dim_utm,
+                                   height=plan.patch_info.dim_utm,
+                                   uv0=(0, 1), uv1=(1, 0), interpolate=False)
 
-                    if plan.astar_path:
-                        viz.plot(plan.astar_path[0], plan.astar_path[1], marker_size=2, color="blue", fmt="-o",
-                                 label="waypoints")
-
-                    viz.plot([plan.ego_node.x_index], [plan.ego_node.y_index], color="blue", fmt="o")
-                    viz.plot([plan.global_goal_node.x_index], [plan.global_goal_node.y_index], color="red", fmt="o")
+                    if self.way_x:
+                        viz.plot(self.way_x, self.way_y, marker_size=2, color="blue", fmt="-o", label="A* path")
 
                     viz.end_plot()
+            viz.end_window()
 
+            # Proximity Map
+            window_title = "Proximity map"
+            if viz.begin_window(
+                    window_title,
+                    # size=(400, 400),
+                    # position=(1100, 400),
+                    resize=True,
+            ):
+                self.show_internal_heuristics = viz.get_window_open()
+
+                if viz.begin_plot(window_title, flags=viz.PlotFlags.EQUAL):
+                    viz.setup_axis(viz.Axis.X1, "x in m")
+                    viz.setup_axis(viz.Axis.Y1, "y in m")
+
+                    if viz.plot_selection_ended():
+                        viz.hard_cancel_plot_selection()
+
+                    h_prox = AStar.h_prox_arr_.getNumpyArr()
+                    if h_prox is not None:
+                        offset = plan.patch_info.origin_utm
+                        self.show_pixel_value(h_prox, offset, kind="astar")
+                        viz.plot_image(window_title, 1 - h_prox,
+                                       x=offset.x,
+                                       y=offset.y,
+                                       width=plan.patch_info.dim_utm,
+                                       height=plan.patch_info.dim_utm,
+                                       uv0=(0, 1), uv1=(1, 0), interpolate=False)
+
+                    if self.way_x:
+                        viz.plot(self.way_x, self.way_y, line_weight=3, color="blue", fmt="-o", label="A* path")
+
+                    viz.end_plot()
             viz.end_window()
 
     def vis_state_details(self, plan):
@@ -758,11 +892,8 @@ class Vis:
                 resize=True,
         ):
             if viz.tree_node("State", viz.TreeNodeFlags.DEFAULT_OPEN):
-                viz.text(plan.overall_state.repl_s)
                 viz.text(plan.overall_state.ego_s)
-                viz.text(plan.overall_state.goal_s)
                 viz.text("plan.new_goal: " + str(plan.new_goal))
-                viz.text("plan.to_final_pose: " + str(plan.to_final_pose))
                 viz.text("Rec. goal collides: " + str(plan.rec_goal_collides))
                 if plan.coll_idx != -1:
                     text = str(plan.overall_state.path_s) + str(" at ") + str(plan.coll_idx)
@@ -776,31 +907,10 @@ class Vis:
         if self.show_internal_states:
 
             path_states = [el.path_s.value for el in self.state_history]
-            goal_states = [el.goal_s.value for el in self.state_history]
             ego_states = [el.ego_s.value for el in self.state_history]
-            repl_states = [el.repl_s.value for el in self.state_history]
 
             step_vals = np.arange(-len(path_states), 0)
 
-            window_title = "REPL_STATE"
-            if viz.begin_window(
-                    window_title,
-                    resize=True,
-            ):
-                if viz.begin_plot(window_title):
-
-                    self.set_xaxis_settings4states(plan)
-
-                    viz.setup_axis(viz.Axis.Y1, "REPL_STATE")
-                    viz.setup_axis_limits(viz.Axis.Y1, -0.1, 3.1, flags=viz.PlotCond.ALWAYS)
-
-                    if viz.plot_selection_ended():
-                        viz.hard_cancel_plot_selection()
-
-                    viz.plot(step_vals, repl_states, color="blue")
-                    viz.end_plot()
-
-                viz.end_window()
             window_title = "PATH_STATE"
             if viz.begin_window(
                     window_title,
@@ -817,25 +927,8 @@ class Vis:
                         viz.hard_cancel_plot_selection()
                     viz.plot(step_vals, path_states, color="red")
                     viz.end_plot()
-
                 viz.end_window()
-            window_title = "GOAL_STATE"
-            if viz.begin_window(
-                    window_title,
-            ):
-                if viz.begin_plot(window_title):
 
-                    self.set_xaxis_settings4states(plan)
-
-                    viz.setup_axis(viz.Axis.Y1, "GOAL_STATE")
-                    viz.setup_axis_limits(viz.Axis.Y1, -0.1, 1.1, flags=viz.PlotCond.ALWAYS)
-
-                    if viz.plot_selection_ended():
-                        viz.hard_cancel_plot_selection()
-                    viz.plot(step_vals, goal_states, color="green")
-                    viz.end_plot()
-
-                viz.end_window()
             window_title = "EGO_STATE"
             if viz.begin_window(
                     window_title,
@@ -853,20 +946,15 @@ class Vis:
                     viz.end_plot()
                 viz.end_window()
 
-    def vis_vis_parameters(self, plan, minipatches: dict):
+    def vis_vis_parameters(self, plan):
         window_title = "Vis"
         if viz.begin_window(
                 window_title,
         ):
-            max_patch_dist = viz.drag("max_patch_dist", plan.max_patch_dist)
-            if max_patch_dist != plan.max_patch_dist:
-                minipatches.clear()
-                plan.max_patch_dist = max_patch_dist
+            viz.text("vis fps: " + str(round(1 / self.delta_t_vis)))
 
             plan.history_len = viz.input("history_len", plan.history_len)
-            self.auto_fit = viz.checkbox("auto_fit", self.auto_fit)
             viz.same_line()
-            self.stop = viz.checkbox("stop", self.stop)
             self.show_tree = viz.checkbox("Show Tree", self.show_tree)
             self.show_circles = viz.checkbox("Show Circles", self.show_circles)
             if viz.button("EraseHistory"):
@@ -905,7 +993,7 @@ class Vis:
                         if viz.plot_selection_ended():
                             viz.hard_cancel_plot_selection()
 
-                        viz.plot(self.step_vals, driven_yaw, color="red")
+                        viz.plot(self.step_vals, driven_yaw, color="red", fmt="-o")
 
                         viz.end_plot()
                     viz.end_window()
@@ -921,13 +1009,13 @@ class Vis:
                         viz.setup_axis_limits(viz.Axis.X1, 0, len(plan.path.yaw_list),
                                               flags=viz.PlotCond.ALWAYS)
                     viz.setup_axis(viz.Axis.Y1, "Y")
-                    viz.setup_axis_limits(viz.Axis.Y1, -math.pi, math.pi, flags=viz.PlotCond.ALWAYS)
+                    viz.setup_axis_limits(viz.Axis.Y1, -2 * math.pi, 2 * math.pi, flags=viz.PlotCond.ALWAYS)
 
                     if viz.plot_selection_ended():
                         viz.hard_cancel_plot_selection()
 
                     if plan.path is not None:
-                        viz.plot(plan.path.yaw_list, color="red")
+                        viz.plot(plan.path.yaw_list, color="red", fmt="-o")
 
                     viz.end_plot()
             viz.end_window()
@@ -947,7 +1035,6 @@ class Vis:
 
                         if viz.plot_selection_ended():
                             viz.hard_cancel_plot_selection()
-
 
                         viz.plot(self.step_vals, curvatures, color="blue")
                         viz.end_plot()
@@ -1000,7 +1087,6 @@ class Vis:
                     window_title,
             ):
                 if viz.begin_plot(window_title):
-                    # nb_data = len(plan.path.direction_list)
 
                     viz.setup_axis(viz.Axis.X1, "X")
                     if plan.path is not None:
@@ -1019,6 +1105,26 @@ class Vis:
                     viz.end_plot()
             viz.end_window()
 
+            window_title = "normals(planned)"
+            if viz.begin_window(
+                    window_title,
+            ):
+                if viz.begin_plot(window_title):
+
+                    viz.setup_axis(viz.Axis.X1, "X")
+                    if plan.path is not None:
+                        viz.setup_axis_limits(viz.Axis.X1, 0, len(plan.path.direction_list),
+                                              flags=viz.PlotCond.ALWAYS)
+
+                    viz.setup_axis(viz.Axis.Y1, "Y")
+                    viz.setup_axis_limits(viz.Axis.Y1, -10, 10, flags=viz.PlotCond.ALWAYS)
+
+                    if viz.plot_selection_ended():
+                        viz.hard_cancel_plot_selection()
+
+                    viz.end_plot()
+                viz.end_window()
+
     def vis_cycle_times(self, plan):
         window_title = "Cycle times"
         if viz.begin_window(window_title):
@@ -1026,15 +1132,12 @@ class Vis:
 
                 self.set_xaxis_settings4states(plan)
 
-                if self.stop:
-                    viz.setup_axis(viz.Axis.Y1, "Y", flags=viz.PlotAxisFlags.AUTO_FIT)
-                else:
-                    max_val = 0
-                    if len(plan.planning_cycle_times) > 0:
-                        max_val = np.max(plan.planning_cycle_times)
-                    viz.setup_axis_limits(viz.Axis.Y1, 0,
-                                          max(max_val, 0.05),
-                                          flags=viz.PlotCond.ALWAYS)
+                max_val = 0
+                if len(plan.planning_cycle_times) > 0:
+                    max_val = np.max(plan.planning_cycle_times)
+                viz.setup_axis_limits(viz.Axis.Y1, 0,
+                                      max(max_val, 0.05),
+                                      flags=viz.PlotCond.ALWAYS)
 
                 if viz.plot_selection_ended():
                     viz.hard_cancel_plot_selection()
@@ -1067,14 +1170,6 @@ class Vis:
                 self.goal_pose_utm.yaw = np.deg2rad(viz.drag("yaw_deg", int(np.rad2deg(self.goal_pose_utm.yaw))))
                 viz.tree_pop()
 
-            if viz.tree_node("Goal Pose (patch utm)"):
-                if plan.goal_utm_patch is not None:
-                    viz.drag("x", plan.goal_utm_patch.x)
-                    viz.drag("y", plan.goal_utm_patch.y)
-                    viz.drag("yaw_rad", plan.goal_utm_patch.yaw)
-                    np.deg2rad(viz.drag("yaw_deg", int(np.rad2deg(plan.goal_utm_patch.yaw))))
-                viz.tree_pop()
-
             if viz.button("+45"):
                 self.goal_pose_utm.yaw += np.deg2rad(45)
             viz.same_line()
@@ -1089,8 +1184,6 @@ class Vis:
             viz.same_line()
             if viz.button("+180"):
                 self.goal_pose_utm.yaw += np.deg2rad(180)
-
-            self.goal_pose = UtilCpp.utm2grid(self.goal_pose_utm)
 
             # Return new goal
             key_pressed = viz.get_key_events()
@@ -1149,7 +1242,18 @@ class Vis:
                     HybridAStar.updateLaneGraph(plan.patch_info.origin_utm, plan.patch_info.dim_utm)
                 viz.tree_pop()
 
-            viz.text("AStar config")
+            if viz.tree_node("Geofence control"):
+                if not self.create_geofence:
+                    if viz.button("create geofence"):
+                        AStar.restr_geofence_.reset()
+                        self.create_geofence = True
+                else:
+                    if viz.button("save geofence"):
+                        AStar.processGeofence()
+                        self.create_geofence = False
+                viz.tree_pop()
+
+            viz.text("A* params")
             AStar.alpha_ = viz.drag("alpha_", AStar.alpha_)
             AStar.do_max_ = viz.drag("do_max_", AStar.do_max_)
             AStar.do_min_ = viz.drag("do_min_", AStar.do_min_)
@@ -1157,7 +1261,7 @@ class Vis:
             AStar.astar_movement_cost_ = viz.drag("astar_movement_cost_", AStar.astar_movement_cost_)
             AStar.astar_lane_movement_cost_ = viz.drag("astar_lane_movement_cost_", AStar.astar_lane_movement_cost_)
 
-            viz.text("Hybrid AStar config")
+            viz.text("Hybrid A* params")
             HybridAStar.switch_cost_ = viz.drag("switch_cost_", HybridAStar.switch_cost_)
             HybridAStar.steer_cost_ = viz.drag("steer_cost_", HybridAStar.steer_cost_)
             HybridAStar.steer_change_cost_ = viz.drag("steer_change_cost_", HybridAStar.steer_change_cost_)
@@ -1165,9 +1269,17 @@ class Vis:
             HybridAStar.back_cost_ = viz.drag("back_cost_", HybridAStar.back_cost_)
             HybridAStar.h_prox_cost_ = viz.drag("h_prox_cost_", HybridAStar.h_prox_cost_)
 
+            # viz.text("Smoother params")
+            # Smoother.max_iter_ = viz.drag("max_iter_", Smoother.max_iter_)
+            # Smoother.wSmoothness_ = viz.drag("wSmoothness_", Smoother.wSmoothness_)
+            # Smoother.wObstacle_ = viz.drag("wObstacle_", Smoother.wObstacle_)
+            # Smoother.wCurvature_ = viz.drag("wCurvature_", Smoother.wCurvature_)
+            # Smoother.alpha_ = viz.drag("alpha_", Smoother.alpha_)
+
         viz.end_window()
 
-    def save_graph(self, plan):
+    @staticmethod
+    def save_graph(plan):
         x_list = [node.point_utm.x for node in HybridAStar.lane_graph_.nodes_]
         y_list = [node.point_utm.y for node in HybridAStar.lane_graph_.nodes_]
         data = np.vstack((x_list, y_list))
@@ -1182,17 +1294,14 @@ class Vis:
         return False
 
     def gather_data(self, plan):
-        # always needed
-        self.driven_x, self.driven_y = UtilCpp.utm2grid([plan.driven_path.x_list, plan.driven_path.y_list])
-
-        self.ego_utm_global = UtilCpp.patch_utm2utm(plan.ego_utm_patch)
-
-        self.car_outline_x, self.car_outline_y = self.get_vehicle_outline(self.ego_utm_global.x,
-                                                                          self.ego_utm_global.y,
-                                                                          plan.ego_utm_patch.yaw,
-                                                                          transf="gm")
 
         self.state_history.append(deepcopy(plan.overall_state))
+
+        self.way_x = []
+        self.way_y = []
+        if plan.astar_path:
+            way_x, way_y = UtilCpp.astar2utm([plan.astar_path[0], plan.astar_path[1]])
+            self.way_x, self.way_y = UtilCpp.patch_utm2utm(way_x, way_y)
 
     def map_handling(self, save):
         self.action_obj = ActionObj()
@@ -1203,7 +1312,16 @@ class Vis:
             self.action_obj.load_map()
             self.logger.log_info("Load map triggered from vis")
 
-    def render_data(self, minipatches: dict, plan, show_vis: bool = True):
+    def render_data(self, plan, show_vis: bool = True):
+        delta_t_vis, new_timestamp = util.set_and_measure(self.t_last_vis)
+        if delta_t_vis < self.vis_period:
+            return None, self.pause, self.action_obj
+
+        self.delta_t_vis = delta_t_vis
+        self.t_last_vis = new_timestamp
+
+        # Errors in visualization should be ignored
+        # try:
         self.initialize()
 
         main_title = "freespace planner"
@@ -1211,20 +1329,21 @@ class Vis:
             viz.set_main_window_title(main_title)
 
             if self.idx == 0:
-                viz.set_main_window_size((1000, 1000))
+                viz.set_main_window_size((1920, 1080))
                 viz.set_main_window_pos((0, 0))
         else:
             title = main_title + "(deactivated)"
             viz.set_main_window_title(title)
             viz.set_main_window_size((10, 10))
             viz.set_main_window_pos((0, 0))
+            self.idx = 0
 
         # Only continue if patch_info is set
         if not viz.wait(vsync=False) or not show_vis or plan.patch_info is None or plan.ego_utm_patch is None:
             time.sleep(0.1)
             return None, self.pause, self.action_obj
 
-        nb_history_els = min(plan.history_len, len(self.driven_x))
+        nb_history_els = min(plan.history_len, len(plan.driven_path.x_list))
         self.step_vals = np.arange(-nb_history_els, 0)
         self.goal_message = None
         self.action_obj = None
@@ -1246,9 +1365,9 @@ class Vis:
                     dt_string = now.strftime("%H_%M_%S_%d_%m_%Y")
 
                     data = plan.driven_path
-                    waypoint_type: WayType = plan.WAYPOINT_TYPE
+                    waypoint_type: WayType = plan.config.WAYPOINT_TYPE
                     waypoint_str = "NONE"
-                    if waypoint_type == 1:
+                    if waypoint_type == 0:
                         waypoint_str = "EARLY"
 
                     path_id: str = waypoint_str + "_" + dt_string
@@ -1316,15 +1435,15 @@ class Vis:
 
         self.vis_dilated_collision_map(plan)
 
-        self.vis_collision_checks(minipatches, plan)
-
         self.vis_patch(plan)
+
+        self.vis_collision_checks(plan)
 
         self.vis_internal_heuristics(plan)
 
         self.vis_state_details(plan)
 
-        self.vis_vis_parameters(plan, minipatches)
+        self.vis_vis_parameters(plan)
 
         self.vis_path_details(plan)
 
@@ -1333,6 +1452,9 @@ class Vis:
         self.vis_poses_and_control(plan)
 
         self.idx = self.idx + 1
+
+        # except Exception as e:
+        #     print(termcolor.colored("Catched error in vis thread, staying active:\n" + str(e), "red"))
 
         viz.save_ini(self.ini_path)
 

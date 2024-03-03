@@ -1,6 +1,5 @@
 set(LIBRARY_NAME util_lib)
 
-find_package (OpenCV REQUIRED)
 find_package (pybind11 REQUIRED)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -22,14 +21,12 @@ target_link_libraries(${LIBRARY_NAME} PUBLIC
         stdc++fs
         pybind11::module
         pybind11::embed
-        ${OpenCV_LIBS}
         )
 
 target_include_directories(${LIBRARY_NAME} SYSTEM PUBLIC)
 target_include_directories(${LIBRARY_NAME} PUBLIC
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>
-        ${OpenCV_INCLUDE_DIRS}
         )
 
 if (${COVERAGE})

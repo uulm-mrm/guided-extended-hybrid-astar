@@ -1,0 +1,8 @@
+{
+    "build": {
+        "build-base": './colcon_build/build',
+        "install-base": './colcon_build/install',
+        "symlink-install": true
+    }
+}
+
