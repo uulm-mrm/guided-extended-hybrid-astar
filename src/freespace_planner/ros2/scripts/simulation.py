@@ -111,11 +111,6 @@ class Sim:
         ci_start_time = time.perf_counter()
 
         while True:
-
-            if not CI_RUN:
-                # Allow automatic reloading of python code - this is spooky ;)
-                viz.update_autoreload()
-
             if self.pause:
                 continue
 

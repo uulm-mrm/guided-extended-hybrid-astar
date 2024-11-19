@@ -85,7 +85,6 @@ RUN apt update && apt-get install --no-install-recommends -y \
             libgtk2.0-dev \
             pkg-config \
             python3-dev \
-            python3-numpy \
             gfortran \
             libyaml-cpp-dev \
             ffmpeg \
@@ -100,11 +99,11 @@ RUN apt update && apt-get install --no-install-recommends -y \
             tmux \
             xterm \
             lsb-release \
-            bash-completion \
+            bash-completion
 
 
 # Install python dependencies
-RUN pip3 install --upgrade pip  && pip3 install pybind11[global] pyyaml scipy termcolor imviz matplotlib autopep8
+RUN pip3 install --upgrade pip  && pip3 install numpy==1.26.4 pybind11[global] pyyaml scipy termcolor imviz matplotlib autopep8
 
 # install gfortran for cpp bindings of fortran spline routines
 RUN apt-get -y update && apt-get install -y gfortran && apt-get clean && rm -rf /var/lib/apt/lists/*
