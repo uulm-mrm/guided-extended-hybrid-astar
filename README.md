@@ -51,7 +51,7 @@ The paper was published at the IEEE ITSC 2023 and can be cited as stated below.
 [![IMAGE ALT TEXT HERE](https://img.youtube.com/vi/5uQWnyPqYFw/0.jpg)](https://www.youtube.com/watch?v=5uQWnyPqYFw)
 
 ## Setup
-Clone the repository and update the submodules.
+Clone the repository and update the submodules (ignore the errors concerning lsp-client, they are irrelevant)
 ```
 git submodule update --init --recursive                                                      
 ```
